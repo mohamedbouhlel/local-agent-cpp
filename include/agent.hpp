@@ -26,6 +26,7 @@ public:
 
 private:
     void append_message(Message message);
+    void trim_history();
 
     ToolRegistry& tools_;
     AgentConfig config_;

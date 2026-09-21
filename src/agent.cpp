@@ -88,6 +88,8 @@ std::string Agent::send(const std::string& input)
 
     const HttpClient client;
     for (int iteration = 0; iteration < max_tool_iterations; ++iteration) {
+        trim_history();
+
         const auto payload = make_payload(config_, tools_, history_);
         const auto response_body = client.post(config_.base_url, headers, payload.dump(), config_.timeout_seconds);
         const auto assistant_message = extract_assistant_message(response_body);
@@ -95,6 +97,7 @@ std::string Agent::send(const std::string& input)
         if (!has_tool_calls(assistant_message)) {
             const auto content = assistant_message.at("content").get<std::string>();
             append_message({assistant_message});
+            trim_history();
             return content;
         }
 
@@ -121,7 +124,30 @@ std::string Agent::send(const std::string& input)
 void Agent::append_message(Message message)
 {
     history_.push_back(std::move(message));
-    if (history_.size() > max_history_messages) {
-        history_.erase(history_.begin(), history_.begin() + static_cast<std::vector<Message>::difference_type>(history_.size() - max_history_messages));
+}
+
+void Agent::trim_history()
+{
+    if (history_.size() <= max_history_messages) {
+        return;
+    }
+
+    std::vector<std::size_t> turn_starts;
+    for (std::size_t index = 0; index < history_.size(); ++index) {
+        if (history_[index].data.value("role", "") == "user") {
+            turn_starts.push_back(index);
+        }
+    }
+
+    std::size_t first_kept = 0;
+    for (std::size_t turn = 0; turn + 1 < turn_starts.size(); ++turn) {
+        if (history_.size() - turn_starts[turn] <= max_history_messages) {
+            break;
+        }
+        first_kept = turn_starts[turn + 1];
+    }
+
+    if (first_kept > 0) {
+        history_.erase(history_.begin(), history_.begin() + static_cast<std::vector<Message>::difference_type>(first_kept));
     }
 }

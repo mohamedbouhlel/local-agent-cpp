@@ -1,8 +1,10 @@
 #include "agent.hpp"
 #include "http_client.hpp"
 #include "tool_registry.hpp"
+#include "workspace_tools.hpp"
 
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -49,6 +51,10 @@ int main()
 {
     auto config = load_config();
     ToolRegistry tools;
+    const auto workspace_root = std::filesystem::absolute("workspace");
+    std::filesystem::create_directories(workspace_root);
+    register_workspace_tools(tools, workspace_root);
+
     Agent agent(tools, config);
 
     std::cout << "agent-cpp ready. Type 'exit' to quit.\n";

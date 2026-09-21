@@ -5,28 +5,66 @@
 #include <nlohmann/json.hpp>
 
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace {
 
 constexpr std::size_t max_history_messages = 20;
+constexpr int max_tool_iterations = 5;
 
 nlohmann::json messages_to_json(const std::vector<Message>& messages)
 {
     auto json_messages = nlohmann::json::array();
     for (const auto& message : messages) {
-        json_messages.push_back({
-            {"role", message.role},
-            {"content", message.content},
-        });
+        json_messages.push_back(message.data);
     }
     return json_messages;
 }
 
-std::string extract_assistant_content(const std::string& response_body)
+nlohmann::json make_user_message(const std::string& content)
+{
+    return {
+        {"role", "user"},
+        {"content", content},
+    };
+}
+
+nlohmann::json make_tool_message(const std::string& tool_call_id, const std::string& content)
+{
+    return {
+        {"role", "tool"},
+        {"tool_call_id", tool_call_id},
+        {"content", content},
+    };
+}
+
+nlohmann::json make_payload(const AgentConfig& config, const ToolRegistry& tools, const std::vector<Message>& history)
+{
+    auto payload = nlohmann::json{
+        {"model", config.model},
+        {"messages", messages_to_json(history)},
+        {"stream", false},
+    };
+
+    if (!tools.empty()) {
+        payload["tools"] = tools.schemas_json();
+    }
+
+    return payload;
+}
+
+nlohmann::json extract_assistant_message(const std::string& response_body)
 {
     const auto response = nlohmann::json::parse(response_body);
-    return response.at("choices").at(0).at("message").at("content").get<std::string>();
+    return response.at("choices").at(0).at("message");
+}
+
+bool has_tool_calls(const nlohmann::json& assistant_message)
+{
+    return assistant_message.contains("tool_calls")
+        && assistant_message.at("tool_calls").is_array()
+        && !assistant_message.at("tool_calls").empty();
 }
 
 } // namespace
@@ -39,13 +77,7 @@ Agent::Agent(ToolRegistry& tools, AgentConfig config)
 
 std::string Agent::send(const std::string& input)
 {
-    append_message({"user", input});
-
-    const nlohmann::json payload = {
-        {"model", config_.model},
-        {"messages", messages_to_json(history_)},
-        {"stream", false},
-    };
+    append_message({make_user_message(input)});
 
     HttpClient::Headers headers = {
         "Content-Type: application/json",
@@ -55,11 +87,35 @@ std::string Agent::send(const std::string& input)
     }
 
     const HttpClient client;
-    const auto response_body = client.post(config_.base_url, headers, payload.dump(), config_.timeout_seconds);
-    const auto content = extract_assistant_content(response_body);
+    for (int iteration = 0; iteration < max_tool_iterations; ++iteration) {
+        const auto payload = make_payload(config_, tools_, history_);
+        const auto response_body = client.post(config_.base_url, headers, payload.dump(), config_.timeout_seconds);
+        const auto assistant_message = extract_assistant_message(response_body);
 
-    append_message({"assistant", content});
-    return content;
+        if (!has_tool_calls(assistant_message)) {
+            const auto content = assistant_message.at("content").get<std::string>();
+            append_message({assistant_message});
+            return content;
+        }
+
+        append_message({assistant_message});
+        for (const auto& tool_call : assistant_message.at("tool_calls")) {
+            const auto tool_call_id = tool_call.at("id").get<std::string>();
+            const auto name = tool_call.at("function").at("name").get<std::string>();
+            const auto arguments = tool_call.at("function").value("arguments", "{}");
+
+            std::string result;
+            try {
+                result = tools_.execute(name, arguments);
+            } catch (const std::exception& error) {
+                result = std::string("tool error: ") + error.what();
+            }
+
+            append_message({make_tool_message(tool_call_id, result)});
+        }
+    }
+
+    throw std::runtime_error("tool call loop exceeded maximum iterations");
 }
 
 void Agent::append_message(Message message)

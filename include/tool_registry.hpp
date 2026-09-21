@@ -12,6 +12,7 @@ public:
     void register_tool(Tool tool);
     std::string execute(const std::string& name, const std::string& args_json) const;
     nlohmann::json schemas_json() const;
+    bool empty() const;
 
 private:
     std::map<std::string, Tool> tools_;

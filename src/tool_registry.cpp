@@ -46,3 +46,8 @@ nlohmann::json ToolRegistry::schemas_json() const
 
     return tools;
 }
+
+bool ToolRegistry::empty() const
+{
+    return tools_.empty();
+}

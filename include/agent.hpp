@@ -2,12 +2,13 @@
 
 #include "tool_registry.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <string>
 #include <vector>
 
 struct Message {
-    std::string role;
-    std::string content;
+    nlohmann::json data;
 };
 
 struct AgentConfig {

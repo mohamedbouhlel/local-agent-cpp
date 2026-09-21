@@ -1,4 +1,5 @@
 #include "agent.hpp"
+#include "http_client.hpp"
 #include "tool_registry.hpp"
 
 #include <cstdlib>
@@ -65,9 +66,11 @@ int main()
 
         try {
             std::cout << agent.send(input) << "\n";
-        } catch (const std::exception& error) {
-            std::cerr << "Unable to contact the local LLM server at " << config.base_url
+        } catch (const HttpError& error) {
+            std::cerr << "Impossible de contacter LLM_BASE_URL (" << config.base_url << ")"
                       << ": " << error.what() << "\n";
+        } catch (const std::exception& error) {
+            std::cerr << "Reponse du serveur inattendue: " << error.what() << "\n";
         }
     }
 

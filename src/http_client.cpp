@@ -3,7 +3,6 @@
 #include <curl/curl.h>
 
 #include <memory>
-#include <stdexcept>
 #include <string>
 
 namespace {
@@ -100,13 +99,13 @@ std::string HttpClient::post(const std::string& url,
     const auto code = curl_easy_perform(curl.get());
     if (code != CURLE_OK) {
         const std::string detail = error_buffer[0] != '\0' ? error_buffer : curl_easy_strerror(code);
-        throw std::runtime_error("HTTP POST failed: " + detail);
+        throw HttpError("HTTP POST failed: " + detail);
     }
 
     long status_code = 0;
     curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status_code);
     if (status_code < 200 || status_code >= 300) {
-        throw std::runtime_error("HTTP POST failed with status " + std::to_string(status_code) + ": " + response);
+        throw HttpError("HTTP POST failed with status " + std::to_string(status_code) + ": " + response);
     }
 
     return response;

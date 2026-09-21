@@ -21,6 +21,7 @@ add_executable(agent
   src/agent.cpp
   src/http_client.cpp
   src/tool_registry.cpp
+  src/workspace_tools.cpp
 )
 target_include_directories(agent PRIVATE include)
 target_link_libraries(agent PRIVATE CURL::libcurl nlohmann_json::nlohmann_json)

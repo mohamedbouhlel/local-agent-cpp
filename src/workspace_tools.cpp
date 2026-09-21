@@ -76,6 +76,21 @@ std::string require_string_arg(const nlohmann::json& args, const char* name)
     return args.at(name).get<std::string>();
 }
 
+bool appears_binary(const std::filesystem::path& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return true;
+    }
+
+    std::string buffer;
+    buffer.resize(binary_probe_bytes);
+    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    buffer.resize(static_cast<std::size_t>(file.gcount()));
+
+    return std::find(buffer.begin(), buffer.end(), '\0') != buffer.end();
+}
+
 std::string list_files(const std::filesystem::path& root)
 {
     std::ostringstream output;
@@ -103,6 +118,9 @@ std::string read_file(const std::filesystem::path& root, const nlohmann::json& a
     if (!std::filesystem::is_regular_file(path)) {
         throw std::runtime_error("path is not a regular file");
     }
+    if (appears_binary(path)) {
+        throw std::runtime_error("cannot read binary file: " + relative_to_workspace(root, path).generic_string());
+    }
 
     std::ifstream file(path, std::ios::binary);
     if (!file) {
@@ -120,21 +138,6 @@ std::string read_file(const std::filesystem::path& root, const nlohmann::json& a
     }
 
     return content;
-}
-
-bool appears_binary(const std::filesystem::path& path)
-{
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        return true;
-    }
-
-    std::string buffer;
-    buffer.resize(binary_probe_bytes);
-    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    buffer.resize(static_cast<std::size_t>(file.gcount()));
-
-    return std::find(buffer.begin(), buffer.end(), '\0') != buffer.end();
 }
 
 std::string search_files(const std::filesystem::path& root, const nlohmann::json& args)

@@ -13,7 +13,14 @@ Agent IA minimal en C++, connecté à un LLM local compatible OpenAI.
 
 ## Configuration
 cp .env.example .env
-# éditer .env avec LLM_BASE_URL / LLM_MODEL / LLM_API_KEY
+# éditer .env avec LLM_BASE_URL / LLM_MODEL / LLM_API_KEY si besoin
+
+Variables reconnues :
+- `LLM_BASE_URL` : endpoint local OpenAI-compatible. Défaut :
+  `http://localhost:8080/v1/chat/completions`.
+- `LLM_MODEL` : nom du modèle chargé côté serveur. Défaut : `local-model`.
+- `LLM_API_KEY` : optionnelle, pour serveurs locaux qui l'exigent.
+- `LLM_TIMEOUT_SECONDS` : optionnelle, timeout des requêtes HTTP. Défaut : `60`.
 
 ## Build
 cmake -B build

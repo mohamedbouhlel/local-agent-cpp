@@ -31,9 +31,12 @@ Pas de suite de tests pour l'instant.
 - http_client.hpp/.cpp  -> wrapper autour de libcurl
 
 ## Config LLM local
-- LLM_BASE_URL : endpoint local (ex: http://localhost:8080/v1/chat/completions)
-- LLM_MODEL    : nom du modèle chargé côté serveur
+- LLM_BASE_URL : endpoint local (défaut :
+  http://localhost:8080/v1/chat/completions)
+- LLM_MODEL    : nom du modèle chargé côté serveur (défaut : local-model)
 - LLM_API_KEY  : optionnelle, pour serveurs locaux qui l'exigent
+- LLM_TIMEOUT_SECONDS : optionnelle, timeout des requêtes HTTP en secondes
+  (défaut : 60)
 
 ## Credentials
 - Fichier .env (non commité) chargé dans le shell avant de lancer l'agent
@@ -55,8 +58,8 @@ Pas de suite de tests pour l'instant.
   remonter une exception brute.
 
 ## Current state
-Structure de build uniquement. Tout le code métier (main.cpp, agent.hpp)
-reste à écrire.
+REPL minimal fonctionnel : lecture utilisateur, appel chat completions
+OpenAI-compatible non-streamé, historique borné et registre d'outils inerte.
 
 ## Instructions pour l'agent
 - Ne pas ajouter de framework externe sans le demander explicitement

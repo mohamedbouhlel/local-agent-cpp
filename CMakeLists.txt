@@ -18,6 +18,7 @@ FetchContent_MakeAvailable(json)
 
 add_executable(agent
   src/main.cpp
+  src/agent.cpp
   src/http_client.cpp
   src/tool_registry.cpp
 )

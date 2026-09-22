@@ -174,6 +174,10 @@ suffit de les déposer dans ce dossier.
   sandboxé dans `workspace/`** — chemin validé par le sandbox avant tout
   accès disque, chemins absolus et `..` rejetés, aucune écriture possible en
   dehors du dossier.
+- **Écriture atomique et hard links** : l'écriture passe par un fichier
+  temporaire du même répertoire puis un `rename()`. Conséquence assumée : si
+  le fichier écrasé avait des hard links, le lien est rompu — le chemin écrit
+  pointe vers le nouvel inode et les autres liens gardent l'ancien contenu.
 
 ## 6. Limites connues
 

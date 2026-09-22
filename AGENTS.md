@@ -66,7 +66,11 @@ Pas de suite de tests pour l'instant.
   dans workspace/ sont exposés au modèle : list_files, read_file,
   search_files et write_file. write_file écrit de façon autonome (aucune
   confirmation humaine), mais refuse d'écraser un fichier existant si
-  overwrite n'est pas explicitement true.
+  overwrite n'est pas explicitement true. L'écriture est atomique : contenu
+  écrit dans un fichier temporaire du même répertoire puis substitué via
+  rename(). Compromis assumé : si la cible écrasée avait des hard links,
+  rename() casse le lien — le chemin écrit pointe vers le nouvel inode, les
+  autres liens conservent l'ancien contenu.
 - Erreurs réseau : si le serveur local est injoignable (curl échoue), 
   afficher un message clair mentionnant LLM_BASE_URL plutôt que de laisser
   remonter une exception brute.

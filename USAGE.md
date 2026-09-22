@@ -8,7 +8,8 @@ ne les duplique pas.
 
 `agent-cpp` est un agent IA minimal en C++ : il lit une question au clavier,
 l'envoie à un serveur LLM local compatible OpenAI
-(`POST /v1/chat/completions`, non streamé) et affiche la réponse. Le modèle
+(`POST /v1/chat/completions`, en streaming SSE) et affiche la réponse au fur et
+à mesure. Le modèle
 peut aussi appeler automatiquement quatre outils sandboxés pour lire et
 explorer les fichiers du dossier `workspace/`.
 
@@ -74,7 +75,13 @@ L'agent fonctionne en boucle lecture → envoi → affichage :
 
 - **Poser une question** : tapez votre texte puis Entrée. L'agent l'envoie au
   serveur LLM et affiche la réponse (ou déclenche des appels d'outils, voir
-  section 5). L'invite est `>`.
+  section 5). L'invite est `>`. La réponse s'affiche **progressivement**, au
+  fil des fragments reçus du serveur (streaming SSE), et non d'un bloc à la
+  fin.
+- **Pendant un cycle d'outils** : quand le modèle décide d'appeler un outil,
+  une ligne `[appel de <nom d'outil>...]` s'affiche pendant l'exécution, avant
+  que la réponse finale ne continue à s'écrire. C'est un simple indicateur de
+  progression (le silence serait sinon déroutant).
 - **Quitter** : tapez `exit` puis Entrée. La fin de flux (`Ctrl-D`) termine
   aussi la boucle.
 - **Ligne vide** : ignorée, l'invite `>` réapparaît sans appel réseau.

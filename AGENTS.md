@@ -57,9 +57,15 @@ relister les .cpp.
 - Le code lit uniquement via std::getenv(), jamais de valeur en dur
 
 ## Décisions d'architecture (v1)
-- Streaming : désactivé (stream: false). http_client doit quand même être
-  conçu avec une interface qui pourrait accepter un callback de streaming
-  plus tard, sans réécriture complète.
+- Streaming : actif (stream: true). Les réponses sont consommées en SSE
+  (src/sse_parser.cpp, framing uniquement) et le message assistant est
+  reconstruit depuis les deltas OpenAI (content concaténé ; tool_calls
+  accumulés par index dans src/agent.cpp). Feedback minimal pendant un cycle
+  d'outils : callback on_tool_call -> "[appel de <outil>...]".
+- Invariant streaming : si la requête échoue en plein flux (coupure, statut
+  non-2xx), le message assistant partiellement reconstruit n'est JAMAIS ajouté
+  à l'historique — seul le message user du tour y reste, pour pouvoir
+  retenter sans historique corrompu.
 - Historique de conversation : borné aux 20 derniers messages pour éviter
   de dépasser la fenêtre de contexte du modèle local. Troncature simple
   (drop des plus anciens), pas de résumé.
@@ -89,8 +95,9 @@ relister les .cpp.
 
 ## Current state
 REPL minimal fonctionnel : lecture utilisateur, appel chat completions
-OpenAI-compatible non-streamé, historique borné et tool-calling actif avec
-quatre outils sandboxés (list_files, read_file, search_files, write_file).
+OpenAI-compatible en streaming (affichage progressif), historique borné et
+tool-calling actif avec quatre outils sandboxés (list_files, read_file,
+search_files, write_file).
 
 ## Instructions pour l'agent
 - Ne pas ajouter de framework externe sans le demander explicitement

@@ -61,15 +61,20 @@ Pas de suite de tests pour l'instant.
   assistant (tool_calls) -> tool (tool_call_id) attendu par l'API. Le
   dépassement devient plus probable si max_tool_iterations est augmenté
   au-delà de sa valeur actuelle (5).
-- Tool-calling : hors scope de cette itération. Sera ajouté dans un prompt
-  dédié une fois le REPL de base fonctionnel.
+- Tool-calling : actif via ToolRegistry (dispatch des tool_calls dans
+  Agent::send, borné par max_tool_iterations = 5). Quatre outils sandboxés
+  dans workspace/ sont exposés au modèle : list_files, read_file,
+  search_files et write_file. write_file écrit de façon autonome (aucune
+  confirmation humaine), mais refuse d'écraser un fichier existant si
+  overwrite n'est pas explicitement true.
 - Erreurs réseau : si le serveur local est injoignable (curl échoue), 
   afficher un message clair mentionnant LLM_BASE_URL plutôt que de laisser
   remonter une exception brute.
 
 ## Current state
 REPL minimal fonctionnel : lecture utilisateur, appel chat completions
-OpenAI-compatible non-streamé, historique borné et registre d'outils inerte.
+OpenAI-compatible non-streamé, historique borné et tool-calling actif avec
+quatre outils sandboxés (list_files, read_file, search_files, write_file).
 
 ## Instructions pour l'agent
 - Ne pas ajouter de framework externe sans le demander explicitement

@@ -70,12 +70,32 @@ int main()
             continue;
         }
 
+        bool streamed_text = false;
+        AgentCallbacks callbacks;
+        callbacks.on_text_delta = [&streamed_text](const std::string& fragment) {
+            std::cout << fragment;
+            std::cout.flush();
+            streamed_text = true;
+        };
+        callbacks.on_tool_call = [](const std::string& name) {
+            std::cout << "[appel de " << name << "...]\n";
+        };
+
         try {
-            std::cout << agent.send(input) << "\n";
+            agent.send(input, callbacks);
+            std::cout << "\n";
         } catch (const HttpError& error) {
+            // Si du texte a déjà été imprimé en streaming, l'erreur doit
+            // démarrer sur sa propre ligne pour rester lisible.
+            if (streamed_text) {
+                std::cout << "\n";
+            }
             std::cerr << "Impossible de contacter LLM_BASE_URL (" << config.base_url << ")"
                       << ": " << error.what() << "\n";
         } catch (const std::exception& error) {
+            if (streamed_text) {
+                std::cout << "\n";
+            }
             std::cerr << "Reponse du serveur inattendue: " << error.what() << "\n";
         }
     }

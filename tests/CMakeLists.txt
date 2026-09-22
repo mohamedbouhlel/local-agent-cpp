@@ -1,0 +1,25 @@
+# Harness de tests (active via -DAGENT_BUILD_TESTS=ON a la racine).
+# Aucun framework externe : micro-harnais maison (tests/test_support.hpp).
+
+find_package(Threads REQUIRED)
+
+add_executable(agent_tests
+  test_main.cpp
+  mock_http_server.cpp
+  mock_http_server_test.cpp
+  sse_parser_test.cpp
+  workspace_tools_test.cpp
+  http_client_test.cpp
+  agent_streaming_test.cpp
+)
+
+target_link_libraries(agent_tests PRIVATE agent_core Threads::Threads)
+target_compile_options(agent_tests PRIVATE -Wall -Wextra -Wpedantic)
+
+# Un test CTest par groupe : resultats lisibles par groupe et code de retour
+# distinct par groupe. Le TIMEOUT transforme un eventuel blocage en ECHEC
+# exploitable au lieu d'un job CI suspendu (constat R-01).
+foreach(group sse workspace http agent mock)
+  add_test(NAME ${group} COMMAND agent_tests --filter=${group})
+  set_tests_properties(${group} PROPERTIES TIMEOUT 30)
+endforeach()

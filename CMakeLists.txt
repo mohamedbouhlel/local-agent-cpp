@@ -30,3 +30,11 @@ add_executable(agent
   src/main.cpp
 )
 target_link_libraries(agent PRIVATE agent_core)
+
+# Harness de tests, desactive par defaut : l'executable de production n'en
+# depend jamais. Activer explicitement avec -DAGENT_BUILD_TESTS=ON.
+option(AGENT_BUILD_TESTS "Build the agent test harness" OFF)
+if(AGENT_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()

@@ -29,3 +29,7 @@ cmake --build build
 ## Run
 set -a; source .env; set +a
 ./build/agent
+
+## Utilisation
+Guide complet (configuration, REPL, outils sandboxés, limites, dépannage) :
+voir [USAGE.md](USAGE.md).

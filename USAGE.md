@@ -9,7 +9,7 @@ ne les duplique pas.
 `agent-cpp` est un agent IA minimal en C++ : il lit une question au clavier,
 l'envoie à un serveur LLM local compatible OpenAI
 (`POST /v1/chat/completions`, non streamé) et affiche la réponse. Le modèle
-peut aussi appeler automatiquement trois outils sandboxés pour lire et
+peut aussi appeler automatiquement quatre outils sandboxés pour lire et
 explorer les fichiers du dossier `workspace/`.
 
 ## 2. Configuration
@@ -86,7 +86,7 @@ LLM qui décide de les appeler pendant qu'il compose sa réponse.
 
 ## 5. Outils disponibles
 
-Les trois outils sont enregistrés au démarrage (`register_workspace_tools()`
+Les quatre outils sont enregistrés au démarrage (`register_workspace_tools()`
 dans `src/workspace_tools.cpp`) et exposés au modèle via le champ `tools` du
 payload. **Tous sont strictement sandboxés dans `workspace/`** : les chemins
 absolus, les `..` et toute tentative de sortie du dossier sont rejetés, donc
@@ -141,6 +141,40 @@ suffit de les déposer dans ce dossier.
   [truncated: reached 50 search results]
   ```
 
+### write_file
+
+- **Ce qu'il fait** : écrit un fichier texte dans le workspace à partir d'un
+  chemin relatif, en créant au besoin les répertoires parents manquants. Le
+  contenu remplace intégralement le fichier (création ou remplacement
+  complet, pas d'ajout à la fin). Retourne une confirmation du type
+  `wrote 42 bytes to notes/a.txt (created new file)` — ou
+  `(overwrote existing file)` en cas de remplacement.
+- **Quand** : quand le modèle doit produire un fichier (notes, code, rapport)
+  dans le workspace. C'est une écriture **autonome** : aucune confirmation
+  humaine n'est demandée dans le REPL.
+- **Garde-fou overwrite** : `overwrite` est un booléen **optionnel, défaut
+  `false`**. Si le fichier cible existe déjà et que `overwrite` n'est pas
+  explicitement `true`, l'écriture est refusée et l'outil renvoie au modèle :
+
+  ```
+  tool error: file already exists: <chemin> (pass overwrite: true to replace it)
+  ```
+
+  Le modèle doit donc passer `overwrite: true` pour confirmer un écrasement
+  volontaire. Sans cela, aucun fichier existant n'est modifié.
+- **Contrainte** : `path` et `content` sont obligatoires (`path` non vide,
+  relatif, sans `..`). Si le chemin résolu est un répertoire existant,
+  l'écriture est refusée (`cannot write file: path is an existing
+  directory: <chemin>`). Le contenu est plafonné à **200 000 caractères** :
+  au-delà, l'écriture est **entièrement rejetée** (pas de troncature, qui
+  corromprait le fichier) avec l'invitation à écrire en plusieurs fois —
+  `content is <N> characters, exceeding the maximum write size of 200000;
+  write the file in smaller parts instead`.
+- **Sandbox** : comme les autres outils, `write_file` reste **strictement
+  sandboxé dans `workspace/`** — chemin validé par le sandbox avant tout
+  accès disque, chemins absolus et `..` rejetés, aucune écriture possible en
+  dehors du dossier.
+
 ## 6. Limites connues
 
 - **Historique borné** : l'historique est limité à `max_history_messages`
@@ -163,6 +197,9 @@ suffit de les déposer dans ce dossier.
   appel à `read_file`.
 - **Plafond de résultats de recherche** : `max_search_results` = **50**
   occurrences par appel à `search_files`.
+- **Taille max d'écriture** : `max_write_chars` = **200 000 caractères** par
+  appel à `write_file`. Au-delà, l'écriture est rejetée en bloc (pas de
+  troncature) pour ne pas produire un fichier corrompu.
 
 ## 7. Dépannage
 

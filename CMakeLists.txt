@@ -16,12 +16,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
-add_executable(agent
-  src/main.cpp
+add_library(agent_core STATIC
   src/agent.cpp
   src/http_client.cpp
   src/tool_registry.cpp
   src/workspace_tools.cpp
 )
-target_include_directories(agent PRIVATE include)
-target_link_libraries(agent PRIVATE CURL::libcurl nlohmann_json::nlohmann_json)
+target_include_directories(agent_core PUBLIC include)
+target_link_libraries(agent_core PUBLIC CURL::libcurl nlohmann_json::nlohmann_json)
+
+add_executable(agent
+  src/main.cpp
+)
+target_link_libraries(agent PRIVATE agent_core)

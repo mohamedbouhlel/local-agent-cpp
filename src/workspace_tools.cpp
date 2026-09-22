@@ -3,12 +3,17 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
+#include <utility>
 
 namespace {
 
@@ -203,6 +208,44 @@ std::string search_files(const std::filesystem::path& root, const nlohmann::json
     return output.str();
 }
 
+std::filesystem::path temporary_path_for(const std::filesystem::path& target)
+{
+    static std::atomic<std::uint64_t> counter{0};
+    const auto ticks = static_cast<std::uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+
+    return target.parent_path()
+        / (target.filename().string() + ".tmp." + std::to_string(ticks) + "."
+           + std::to_string(counter.fetch_add(1)));
+}
+
+class TemporaryFileGuard {
+public:
+    explicit TemporaryFileGuard(std::filesystem::path path)
+        : path_(std::move(path))
+    {
+    }
+
+    ~TemporaryFileGuard()
+    {
+        if (committed_) {
+            return;
+        }
+
+        std::error_code error;
+        std::filesystem::remove(path_, error);
+    }
+
+    TemporaryFileGuard(const TemporaryFileGuard&) = delete;
+    TemporaryFileGuard& operator=(const TemporaryFileGuard&) = delete;
+
+    void commit() noexcept { committed_ = true; }
+
+private:
+    std::filesystem::path path_;
+    bool committed_ = false;
+};
+
 std::string write_file(const std::filesystem::path& root, const nlohmann::json& args)
 {
     const auto path = sandbox_path(root, require_string_arg(args, "path"));
@@ -234,20 +277,32 @@ std::string write_file(const std::filesystem::path& root, const nlohmann::json& 
         throw std::runtime_error("failed to create parent directories: " + error.message());
     }
 
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    if (!file) {
-        throw std::runtime_error("failed to open file for writing");
+    const auto temporary_path = temporary_path_for(path);
+    TemporaryFileGuard cleanup(temporary_path);
+
+    {
+        std::ofstream file(temporary_path, std::ios::binary | std::ios::trunc);
+        if (!file) {
+            throw std::runtime_error("failed to open file for writing");
+        }
+
+        file.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!file) {
+            throw std::runtime_error("failed to write file content");
+        }
+
+        file.close();
+        if (!file) {
+            throw std::runtime_error("failed to flush file content");
+        }
     }
 
-    file.write(content.data(), static_cast<std::streamsize>(content.size()));
-    if (!file) {
-        throw std::runtime_error("failed to write file content");
+    std::filesystem::rename(temporary_path, path, error);
+    if (error) {
+        throw std::runtime_error("failed to replace target file: " + error.message());
     }
 
-    file.close();
-    if (!file) {
-        throw std::runtime_error("failed to flush file content");
-    }
+    cleanup.commit();
 
     return "wrote " + std::to_string(content.size()) + " bytes to " + relative
         + (exists ? " (overwrote existing file)" : " (created new file)");

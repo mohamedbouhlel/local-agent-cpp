@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -271,6 +272,17 @@ std::string write_file(const std::filesystem::path& root, const nlohmann::json& 
             "file already exists: " + relative + " (pass overwrite: true to replace it)");
     }
 
+    std::optional<std::filesystem::perms> preserved_permissions;
+    if (exists) {
+        std::error_code status_error;
+        const auto status = std::filesystem::status(path, status_error);
+        if (status_error) {
+            throw std::runtime_error(
+                "failed to read existing file permissions: " + status_error.message());
+        }
+        preserved_permissions = status.permissions();
+    }
+
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
     if (error) {
@@ -294,6 +306,14 @@ std::string write_file(const std::filesystem::path& root, const nlohmann::json& 
         file.close();
         if (!file) {
             throw std::runtime_error("failed to flush file content");
+        }
+    }
+
+    if (preserved_permissions) {
+        std::filesystem::permissions(temporary_path, *preserved_permissions, error);
+        if (error) {
+            throw std::runtime_error(
+                "failed to apply existing file permissions to temporary file: " + error.message());
         }
     }
 

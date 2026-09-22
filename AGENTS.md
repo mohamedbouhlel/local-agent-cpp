@@ -51,6 +51,16 @@ Pas de suite de tests pour l'instant.
 - Historique de conversation : borné aux 20 derniers messages pour éviter
   de dépasser la fenêtre de contexte du modèle local. Troncature simple
   (drop des plus anciens), pas de résumé.
+- Limitation connue — tour surdimensionné : trim_history() ne retire jamais
+  le dernier tour utilisateur, même s'il dépasse à lui seul
+  max_history_messages (20). La troncature raisonne en tours complets (un
+  tour commence sur un message role=user) et s'arrête avant le tour en
+  cours. Un échange qui enchaîne beaucoup de tool_calls peut donc
+  temporairement dépasser le cap de 20 messages. C'est un compromis assumé,
+  pas un bug : couper au milieu d'un tour casserait l'appairage
+  assistant (tool_calls) -> tool (tool_call_id) attendu par l'API. Le
+  dépassement devient plus probable si max_tool_iterations est augmenté
+  au-delà de sa valeur actuelle (5).
 - Tool-calling : hors scope de cette itération. Sera ajouté dans un prompt
   dédié une fois le REPL de base fonctionnel.
 - Erreurs réseau : si le serveur local est injoignable (curl échoue), 

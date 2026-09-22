@@ -17,6 +17,8 @@ set -a; source .env; set +a
 ## Test
 Pas de suite de tests pour l'instant.
 (À ajouter : Catch2 ou GoogleTest si le projet grossit)
+Un harnais manuel peut lier `agent_core` directement (voir Architecture) sans
+relister les .cpp.
 
 ## Code style
 - C++20
@@ -25,10 +27,20 @@ Pas de suite de tests pour l'instant.
 - Un fichier .cpp par responsabilité (client HTTP, parsing JSON, boucle agent)
 - Pas de dépendances lourdes : libcurl + nlohmann/json suffisent
 
-## Architecture cible
-- main.cpp             -> boucle principale
-- agent.hpp/.cpp        -> état de l'agent, historique de conversation
-- http_client.hpp/.cpp  -> wrapper autour de libcurl
+## Architecture
+- Bibliothèque statique `agent_core` : toute la logique (hors boucle main) —
+  - agent.hpp/.cpp          -> état de l'agent, historique, dispatch tool_calls
+  - http_client.hpp/.cpp    -> wrapper autour de libcurl
+  - tool_registry.hpp/.cpp  -> registre d'outils
+  - workspace_tools.hpp/.cpp -> outils sandboxés dans workspace/
+  Son include path (`include/`) est PUBLIC, et elle expose transitivement
+  CURL::libcurl et nlohmann_json::nlohmann_json (les en-têtes publics
+  incluent déjà `<nlohmann/json.hpp>`).
+- Exécutable `agent` : `src/main.cpp` uniquement (config + boucle REPL), lié
+  à `agent_core` en PRIVATE. Plus d'include path à redéclarer (hérité).
+- Conséquence : compiler un test ou un harnais revient à lier `agent_core`
+  (`target_link_libraries(<cible> PRIVATE agent_core)`) — plus besoin de
+  relister les .cpp un par un ni de redéclarer les dépendances.
 
 ## Config LLM local
 - LLM_BASE_URL : endpoint local (défaut :

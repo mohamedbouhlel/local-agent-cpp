@@ -1,9 +1,12 @@
 #include "agent.hpp"
 
 #include "http_client.hpp"
+#include "sse_parser.hpp"
 
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -44,7 +47,7 @@ nlohmann::json make_payload(const AgentConfig& config, const ToolRegistry& tools
     auto payload = nlohmann::json{
         {"model", config.model},
         {"messages", messages_to_json(history)},
-        {"stream", false},
+        {"stream", true},
     };
 
     if (!tools.empty()) {
@@ -54,17 +57,121 @@ nlohmann::json make_payload(const AgentConfig& config, const ToolRegistry& tools
     return payload;
 }
 
-nlohmann::json extract_assistant_message(const std::string& response_body)
-{
-    const auto response = nlohmann::json::parse(response_body);
-    return response.at("choices").at(0).at("message");
-}
+struct ToolCallAccumulator {
+    std::string id;
+    std::string name;
+    std::string arguments;
+};
+
+// Message assistant en cours de reconstruction depuis les deltas OpenAI. Les
+// tool_calls sont indexés par leur champ "index" (std::map => ordre croissant
+// déterministe), pour que des deltas entrelacés sur des index différents ne se
+// mélangent pas.
+struct StreamingMessageAccumulator {
+    std::string content;
+    std::map<std::size_t, ToolCallAccumulator> tool_calls;
+};
 
 bool has_tool_calls(const nlohmann::json& assistant_message)
 {
     return assistant_message.contains("tool_calls")
         && assistant_message.at("tool_calls").is_array()
         && !assistant_message.at("tool_calls").empty();
+}
+
+void apply_tool_call_delta(StreamingMessageAccumulator& accumulator, const nlohmann::json& call_delta)
+{
+    if (!call_delta.is_object() || !call_delta.contains("index") || !call_delta.at("index").is_number_integer()) {
+        // Sans index exploitable on ne peut pas rattacher le delta : on
+        // l'ignore plutôt que de risquer de fusionner deux tool_calls.
+        return;
+    }
+
+    const auto index_value = call_delta.at("index").get<long long>();
+    if (index_value < 0) {
+        return;
+    }
+    auto& call = accumulator.tool_calls[static_cast<std::size_t>(index_value)];
+
+    // id arrive typiquement une fois : on l'assigne (pas de concaténation).
+    if (call_delta.contains("id") && call_delta.at("id").is_string()) {
+        call.id = call_delta.at("id").get<std::string>();
+    }
+
+    if (!call_delta.contains("function") || !call_delta.at("function").is_object()) {
+        return;
+    }
+
+    const auto& function = call_delta.at("function");
+    // name et arguments peuvent arriver fragmentés : on concatène dans l'ordre.
+    if (function.contains("name") && function.at("name").is_string()) {
+        call.name += function.at("name").get<std::string>();
+    }
+    if (function.contains("arguments") && function.at("arguments").is_string()) {
+        call.arguments += function.at("arguments").get<std::string>();
+    }
+}
+
+void apply_stream_delta(StreamingMessageAccumulator& accumulator,
+                        const nlohmann::json& event,
+                        const AgentCallbacks& callbacks)
+{
+    if (!event.contains("choices") || !event.at("choices").is_array() || event.at("choices").empty()) {
+        return;
+    }
+
+    const auto& choice = event.at("choices").at(0);
+    if (!choice.contains("delta") || !choice.at("delta").is_object()) {
+        return;
+    }
+    const auto& delta = choice.at("delta");
+
+    if (delta.contains("content") && delta.at("content").is_string()) {
+        auto fragment = delta.at("content").get<std::string>();
+        if (!fragment.empty()) {
+            accumulator.content += fragment;
+            if (callbacks.on_text_delta) {
+                callbacks.on_text_delta(fragment);
+            }
+        }
+    }
+
+    if (delta.contains("tool_calls") && delta.at("tool_calls").is_array()) {
+        for (const auto& call_delta : delta.at("tool_calls")) {
+            apply_tool_call_delta(accumulator, call_delta);
+        }
+    }
+}
+
+// Assemble le message final au format attendu par le reste du code (identique à
+// l'ancien extract_assistant_message() non streamé).
+nlohmann::json build_assistant_message(const StreamingMessageAccumulator& accumulator)
+{
+    auto message = nlohmann::json{
+        {"role", "assistant"},
+        {"content", accumulator.content},
+    };
+
+    if (!accumulator.tool_calls.empty()) {
+        auto tool_calls = nlohmann::json::array();
+        for (const auto& [index, call] : accumulator.tool_calls) {
+            static_cast<void>(index);
+            tool_calls.push_back({
+                {"id", call.id},
+                {"type", "function"},
+                {"function",
+                 {
+                     {"name", call.name},
+                     // Un tool_call sans argument (deltas absents) doit rester
+                     // un objet JSON valide pour l'exécution.
+                     {"arguments", call.arguments.empty() ? "{}" : call.arguments},
+                 }},
+            });
+        }
+        message["tool_calls"] = std::move(tool_calls);
+    }
+
+    return message;
 }
 
 } // namespace
@@ -75,7 +182,7 @@ Agent::Agent(ToolRegistry& tools, AgentConfig config)
 {
 }
 
-std::string Agent::send(const std::string& input)
+std::string Agent::send(const std::string& input, const AgentCallbacks& callbacks)
 {
     append_message({make_user_message(input)});
 
@@ -91,8 +198,41 @@ std::string Agent::send(const std::string& input)
         trim_history();
 
         const auto payload = make_payload(config_, tools_, history_);
-        const auto response_body = client.post(config_.base_url, headers, payload.dump(), config_.timeout_seconds);
-        const auto assistant_message = extract_assistant_message(response_body);
+
+        SseParser parser;
+        StreamingMessageAccumulator accumulator;
+
+        // Invariant : si post_streaming lève (coupure en plein flux, statut
+        // non-2xx, ...), on sort de send() sans avoir rien ajouté à
+        // l'historique pour ce tour — le message assistant partiel n'y figure
+        // jamais. Le message user, lui, a déjà été ajouté avant la boucle.
+        client.post_streaming(
+            config_.base_url,
+            headers,
+            payload.dump(),
+            config_.timeout_seconds,
+            [&parser, &accumulator, &callbacks](const std::string& chunk) {
+                for (const auto& data : parser.feed(chunk)) {
+                    // "[DONE]" n'a pas de sens pour le parser SSE : on le
+                    // reconnaît ici, côté OpenAI.
+                    if (data == "[DONE]") {
+                        continue;
+                    }
+
+                    nlohmann::json event;
+                    try {
+                        event = nlohmann::json::parse(data);
+                    } catch (const nlohmann::json::exception&) {
+                        // Fragment SSE isolé malformé : ignoré sans interrompre
+                        // le reste du flux.
+                        continue;
+                    }
+
+                    apply_stream_delta(accumulator, event, callbacks);
+                }
+            });
+
+        const auto assistant_message = build_assistant_message(accumulator);
 
         if (!has_tool_calls(assistant_message)) {
             const auto content = assistant_message.at("content").get<std::string>();
@@ -106,6 +246,10 @@ std::string Agent::send(const std::string& input)
             const auto tool_call_id = tool_call.at("id").get<std::string>();
             const auto name = tool_call.at("function").at("name").get<std::string>();
             const auto arguments = tool_call.at("function").value("arguments", "{}");
+
+            if (callbacks.on_tool_call) {
+                callbacks.on_tool_call(name);
+            }
 
             std::string result;
             try {

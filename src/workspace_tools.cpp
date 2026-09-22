@@ -13,6 +13,7 @@
 namespace {
 
 constexpr std::size_t max_read_chars = 50'000;
+constexpr std::size_t max_write_chars = 200'000;
 constexpr std::size_t binary_probe_bytes = 4096;
 constexpr std::size_t max_search_results = 50;
 
@@ -74,6 +75,17 @@ std::string require_string_arg(const nlohmann::json& args, const char* name)
         throw std::invalid_argument(std::string("missing required string argument: ") + name);
     }
     return args.at(name).get<std::string>();
+}
+
+bool optional_bool_arg(const nlohmann::json& args, const char* name, bool default_value)
+{
+    if (!args.contains(name)) {
+        return default_value;
+    }
+    if (!args.at(name).is_boolean()) {
+        throw std::invalid_argument(std::string("argument must be a boolean: ") + name);
+    }
+    return args.at(name).get<bool>();
 }
 
 bool appears_binary(const std::filesystem::path& path)
@@ -191,6 +203,56 @@ std::string search_files(const std::filesystem::path& root, const nlohmann::json
     return output.str();
 }
 
+std::string write_file(const std::filesystem::path& root, const nlohmann::json& args)
+{
+    const auto path = sandbox_path(root, require_string_arg(args, "path"));
+    const auto content = require_string_arg(args, "content");
+    const auto overwrite = optional_bool_arg(args, "overwrite", false);
+    const auto relative = relative_to_workspace(root, path).generic_string();
+
+    if (content.size() > max_write_chars) {
+        throw std::runtime_error(
+            "content is " + std::to_string(content.size())
+            + " characters, exceeding the maximum write size of "
+            + std::to_string(max_write_chars)
+            + "; write the file in smaller parts instead");
+    }
+
+    if (std::filesystem::is_directory(path)) {
+        throw std::runtime_error("cannot write file: path is an existing directory: " + relative);
+    }
+
+    const bool exists = std::filesystem::exists(path);
+    if (exists && !overwrite) {
+        throw std::runtime_error(
+            "file already exists: " + relative + " (pass overwrite: true to replace it)");
+    }
+
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+        throw std::runtime_error("failed to create parent directories: " + error.message());
+    }
+
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file) {
+        throw std::runtime_error("failed to open file for writing");
+    }
+
+    file.write(content.data(), static_cast<std::streamsize>(content.size()));
+    if (!file) {
+        throw std::runtime_error("failed to write file content");
+    }
+
+    file.close();
+    if (!file) {
+        throw std::runtime_error("failed to flush file content");
+    }
+
+    return "wrote " + std::to_string(content.size()) + " bytes to " + relative
+        + (exists ? " (overwrote existing file)" : " (created new file)");
+}
+
 nlohmann::json object_schema(nlohmann::json properties, nlohmann::json required = nlohmann::json::array())
 {
     return {
@@ -235,6 +297,25 @@ void register_workspace_tools(ToolRegistry& registry, std::filesystem::path work
             {"query"}),
         [root](nlohmann::json args) {
             return search_files(root, args);
+        },
+    });
+
+    registry.register_tool({
+        "write_file",
+        "Write a text file inside the workspace, creating parent directories as needed.",
+        object_schema(
+            {
+                {"path", {{"type", "string"}, {"description", "Relative path inside workspace."}}},
+                {"content", {{"type", "string"}, {"description", "Full content to write to the file."}}},
+                {"overwrite",
+                 {{"type", "boolean"},
+                  {"description",
+                   "Set to true to replace a file that already exists. Defaults to false: "
+                   "writing over an existing file is rejected until this is explicitly true."}}},
+            },
+            {"path", "content"}),
+        [root](nlohmann::json args) {
+            return write_file(root, args);
         },
     });
 }

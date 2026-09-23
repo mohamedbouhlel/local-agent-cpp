@@ -15,10 +15,19 @@ set -a; source .env; set +a
 ./build/agent
 
 ## Test
-Pas de suite de tests pour l'instant.
-(À ajouter : Catch2 ou GoogleTest si le projet grossit)
-Un harnais manuel peut lier `agent_core` directement (voir Architecture) sans
-relister les .cpp.
+Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
+`test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
+(`mock_http_server.*`). 64 cas / 239 assertions répartis en 5 groupes : `sse`,
+`workspace`, `http`, `agent`, `mock`.
+Désactivée par défaut, elle ne pèse jamais sur l'exécutable de production ;
+activation explicite :
+cmake -S . -B build-tests -DAGENT_BUILD_TESTS=ON
+cmake --build build-tests
+cd build-tests && ctest
+Chaque groupe est un test CTest distinct (`TIMEOUT 30`). L'exécutable
+`agent_tests` accepte aussi `--filter=<groupe>` et retourne 2 si aucun cas n'est
+exécuté (filtre sans correspondance). Un test ou un harnais lie `agent_core`
+directement (voir Architecture) sans relister les .cpp.
 
 ## Code style
 - C++20

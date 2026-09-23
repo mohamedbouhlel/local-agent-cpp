@@ -1,5 +1,6 @@
 #include "agent.hpp"
 #include "http_client.hpp"
+#include "prompt_reader.hpp"
 #include "tool_registry.hpp"
 #include "workspace_tools.hpp"
 
@@ -65,16 +66,36 @@ int main()
 
     std::cout << "agent-cpp ready. Type 'exit' to quit.\n";
 
-    std::string input;
+    PromptReader reader(std::cin, std::cout);
     while (true) {
-        std::cout << "> ";
-        if (!std::getline(std::cin, input) || input == "exit") {
+        const auto prompt = reader.read();
+
+        // REPL-08 : la fin de flux termine le REPL. En multiline, le bloc en
+        // cours est abandonne sans envoi ; il n'y a jamais de retour a l'invite
+        // primaire apres un abandon.
+        if (prompt.status == PromptStatus::Eof || prompt.status == PromptStatus::Aborted) {
             break;
         }
 
-        if (input.empty()) {
+        // REPL-06 : un bloc de zero ligne n'est jamais transmis a l'agent.
+        if (prompt.status == PromptStatus::EmptyBlock) {
+            std::cout << "bloc vide ignore\n";
             continue;
         }
+
+        // REPL-02 / REPL-07 : en mode simple uniquement, une ligne vide est
+        // ignoree et "exit" (correspondance exacte, A-6) termine le REPL. En
+        // multiline, ces lignes feraient partie du contenu du bloc.
+        if (prompt.status == PromptStatus::Line) {
+            if (prompt.content.empty()) {
+                continue;
+            }
+            if (prompt.content == "exit") {
+                break;
+            }
+        }
+
+        const std::string& input = prompt.content;
 
         bool streamed_text = false;
         int tools_ok = 0;

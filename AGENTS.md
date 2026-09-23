@@ -17,8 +17,8 @@ set -a; source .env; set +a
 ## Test
 Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
 `test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
-(`mock_http_server.*`). 75 cas / 298 assertions répartis en 5 groupes : `sse`,
-`workspace`, `http`, `agent`, `mock`.
+(`mock_http_server.*`). 106 cas / 372 assertions répartis en 6 groupes : `sse`,
+`workspace`, `http`, `agent`, `repl`, `mock`.
 Désactivée par défaut, elle ne pèse jamais sur l'exécutable de production ;
 activation explicite :
 cmake -S . -B build-tests -DAGENT_BUILD_TESTS=ON
@@ -40,6 +40,8 @@ directement (voir Architecture) sans relister les .cpp.
 - Bibliothèque statique `agent_core` : toute la logique (hors boucle main) —
   - agent.hpp/.cpp          -> état de l'agent, historique, dispatch tool_calls
   - http_client.hpp/.cpp    -> wrapper autour de libcurl
+  - prompt_reader.hpp/.cpp  -> lecture d'une interaction REPL (mode simple ou
+                               bloc multiligne), flux d'entrée/sortie injectés
   - tool_registry.hpp/.cpp  -> registre d'outils
   - workspace_tools.hpp/.cpp -> outils sandboxés dans workspace/
   Son include path (`include/`) est PUBLIC, et elle expose transitivement
@@ -132,6 +134,16 @@ REPL minimal fonctionnel : lecture utilisateur, appel chat completions
 OpenAI-compatible en streaming (affichage progressif), historique borné et
 tool-calling actif avec quatre outils sandboxés (list_files, read_file,
 search_files, write_file).
+Saisie simple **ou bloc multiligne** (spécification
+`docs/specifications/repl-multiline-requirements.md`, `REPL-01`→`REPL-09`) :
+la ligne exacte `:multi` ouvre le bloc, la ligne exacte `:end` le termine et
+déclenche **un seul** `agent.send()`. Le contenu est transmis tel quel (lignes
+vides, espaces et tabulations conservés ; CRLF normalisé **dans le bloc**),
+sans `\n` final ajouté. Un bloc de **zéro ligne** n'est pas envoyé ; un bloc de
+lignes vides l'est. En mode simple, `exit` (correspondance exacte) termine le
+REPL ; en multiligne, `exit` est du contenu. EOF en multiligne abandonne le bloc
+**sans envoi** puis termine le REPL. En mode simple, `:multi` est donc la seule
+ligne « consommée » — déviation assumée et documentée.
 
 ## Instructions pour l'agent
 - Ne pas ajouter de framework externe sans le demander explicitement

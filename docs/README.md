@@ -15,6 +15,14 @@ Documents **durables**, destinés à être tenus à jour.
 | [`roadmap/ROADMAP.md`](roadmap/ROADMAP.md) | trajectoire et suites possibles, séparant faits, déductions et propositions |
 | [`questions/OPEN_QUESTIONS.md`](questions/OPEN_QUESTIONS.md) | informations manquantes, contradictions et points non vérifiables |
 
+## Spécifications
+
+Documents **normatifs** validés par le mainteneur (exigences approuvées).
+
+| Spécification | Contenu |
+| --- | --- |
+| [`specifications/repl-multiline-requirements.md`](specifications/repl-multiline-requirements.md) | **REPL multiline** — exigences `REPL-01` → `REPL-09` **approuvées** (D-1 à D-8) : déclenchement `:multi`, terminateur `:end`, conservation exacte, unicité de l'envoi, blocs vides, `exit`, EOF/Ctrl+D, retour à l'invite |
+
 ## Rapports de phase
 
 Artefacts **datés**, liés à un jalon précis.

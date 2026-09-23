@@ -12,6 +12,7 @@ add_executable(agent_tests
   http_client_test.cpp
   agent_streaming_test.cpp
   agent_e2e_test.cpp
+  prompt_reader_test.cpp
 )
 
 target_link_libraries(agent_tests PRIVATE agent_core Threads::Threads)
@@ -20,7 +21,7 @@ target_compile_options(agent_tests PRIVATE -Wall -Wextra -Wpedantic)
 # Un test CTest par groupe : resultats lisibles par groupe et code de retour
 # distinct par groupe. Le TIMEOUT transforme un eventuel blocage en ECHEC
 # exploitable au lieu d'un job CI suspendu (constat R-01).
-foreach(group sse workspace http agent mock)
+foreach(group sse workspace http agent repl mock)
   add_test(NAME ${group} COMMAND agent_tests --filter=${group})
   set_tests_properties(${group} PROPERTIES TIMEOUT 30)
 endforeach()

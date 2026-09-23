@@ -11,6 +11,7 @@ add_executable(agent_tests
   workspace_tools_test.cpp
   http_client_test.cpp
   agent_streaming_test.cpp
+  agent_e2e_test.cpp
 )
 
 target_link_libraries(agent_tests PRIVATE agent_core Threads::Threads)

@@ -32,6 +32,7 @@ Artefacts **datés**, liés à un jalon précis.
 | [`reports/PHASE_1_1_GIT_COMMIT_REPORT.md`](reports/PHASE_1_1_GIT_COMMIT_REPORT.md) | commit contrôlé `1abe663` (23 fichiers) : contrôles préalables, contenu, contrôles post-commit |
 | [`reports/PHASE_1_1_DOC_2_REPORT.md`](reports/PHASE_1_1_DOC_2_REPORT.md) | cohérence documentaire après commit : index complet des rapports, mise à jour d'`AGENTS.md` §Test, contrôles de liens |
 | [`reports/PHASE_1_1_GIT_3_AUDIT_REPORT.md`](reports/PHASE_1_1_GIT_3_AUDIT_REPORT.md) | audit du périmètre documentaire post-commit : périmètre attendu confirmé, contrôles, anomalies A-1→A-4 |
+| [`reports/PHASE_1_2_MOCK_SSE_REPORT.md`](reports/PHASE_1_2_MOCK_SSE_REPORT.md) | mock SSE versionné : scénarios de bout en bout (texte fragmenté, tool call fragmenté avec `tool_call_id`) ; 66/66 cas |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

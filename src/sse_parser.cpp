@@ -105,3 +105,14 @@ std::vector<std::string> SseParser::feed(const std::string& chunk)
 
     return payloads;
 }
+
+std::vector<std::string> SseParser::flush()
+{
+    if (buffer_.empty()) {
+        return {};
+    }
+
+    auto parsed = parse_event(buffer_);
+    buffer_.clear();
+    return parsed;
+}

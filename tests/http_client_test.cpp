@@ -122,3 +122,23 @@ TEST(http, post_streaming_statut_non_2xx)
                               [&callback_calls](const std::string&) { ++callback_calls; }),
         "HTTP POST failed with status 500");
 }
+
+TEST(http, timeout_distinct_des_autres_echecs_curl)
+{
+    // Phase R0 : un timeout (CURLE_OPERATION_TIMEDOUT) doit produire un message
+    // distinct d'une coupure réseau. Le mock écrit le corps octet par octet avec
+    // un délai : le client (timeout 1 s) abandonne avant la fin.
+    MockHttpServer server;
+    MockHttpServer::Response response;
+    response.status = 200;
+    response.body = "data: un\n\ndata: deux\n\n";
+    response.piece_size = 1;
+    response.piece_delay_us = 200000; // 200 ms par octet : dépasse largement 1 s
+    server.enqueue(response);
+
+    const HttpClient client;
+    CHECK_THROWS_MSG(
+        client.post_streaming(server.url("/v1/chat/completions"), default_headers(), "{}", 1,
+                              [](const std::string&) {}),
+        "HTTP POST timed out after 1s");
+}

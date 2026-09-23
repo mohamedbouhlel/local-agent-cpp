@@ -45,6 +45,12 @@ AgentConfig load_config()
     };
 }
 
+std::string first_line(const std::string& text)
+{
+    const auto newline = text.find('\n');
+    return newline == std::string::npos ? text : text.substr(0, newline);
+}
+
 } // namespace
 
 int main()
@@ -71,6 +77,9 @@ int main()
         }
 
         bool streamed_text = false;
+        int tools_ok = 0;
+        int tools_failed = 0;
+
         AgentCallbacks callbacks;
         callbacks.on_text_delta = [&streamed_text](const std::string& fragment) {
             std::cout << fragment;
@@ -80,10 +89,27 @@ int main()
         callbacks.on_tool_call = [](const std::string& name) {
             std::cout << "[appel de " << name << "...]\n";
         };
+        // Verdict d'exécution produit par le programme : il reflète ce qui a
+        // réellement été exécuté (succès/échec de chaque outil), et non ce que
+        // le modèle affirme avoir fait.
+        callbacks.on_tool_result = [&tools_ok, &tools_failed](const ToolOutcome& outcome) {
+            if (outcome.ok) {
+                ++tools_ok;
+            } else {
+                ++tools_failed;
+            }
+            std::cout << "[" << outcome.name << " -> " << (outcome.ok ? "succes" : "ECHEC")
+                      << (outcome.ok ? std::string() : " (" + first_line(outcome.result) + ")")
+                      << "]\n";
+        };
 
         try {
             agent.send(input, callbacks);
             std::cout << "\n";
+            if (tools_ok + tools_failed > 0) {
+                std::cout << "[execution: " << tools_ok << " outil(s) reussi(s), " << tools_failed
+                          << " en echec]\n";
+            }
         } catch (const HttpError& error) {
             // Si du texte a déjà été imprimé en streaming, l'erreur doit
             // démarrer sur sa propre ligne pour rester lisible.
@@ -92,6 +118,14 @@ int main()
             }
             std::cerr << "Impossible de contacter LLM_BASE_URL (" << config.base_url << ")"
                       << ": " << error.what() << "\n";
+        } catch (const AgentError& error) {
+            // Flux incomplet ou tool call invalide : le programme le signale
+            // comme un échec d'exécution, sans présenter la réponse comme
+            // définitive.
+            if (streamed_text) {
+                std::cout << "\n";
+            }
+            std::cerr << "Reponse incomplete ou invalide du modele: " << error.what() << "\n";
         } catch (const std::exception& error) {
             if (streamed_text) {
                 std::cout << "\n";

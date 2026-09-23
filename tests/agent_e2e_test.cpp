@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -69,6 +70,12 @@ std::string delta_tool_call(int index, const std::string& id, const nlohmann::js
     nlohmann::json event;
     event["choices"] = nlohmann::json::array({nlohmann::json{{"index", 0}, {"delta", delta}}});
     return sse(event);
+}
+
+// Flux texte minimal : un fragment de contenu, puis le marqueur de fin.
+std::string text_stream(const std::string& text)
+{
+    return delta_content(text) + sse_done();
 }
 
 MockHttpServer::Response stream_response(const std::string& body)
@@ -241,4 +248,43 @@ TEST(agent, tool_call_fragmente_bout_en_bout)
         CHECK_EQ(tool->at("tool_call_id").get<std::string>(), std::string("call_e2e"));
         CHECK_EQ(tool->at("content").get<std::string>(), std::string("hello world\n"));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Test C — état réel des fichiers après exécution (Phase R0)
+// ---------------------------------------------------------------------------
+
+TEST(agent, write_file_verifie_l_etat_reel_du_fichier)
+{
+    // Le verdict de l'itération ne doit pas reposer sur le texte du modèle, mais
+    // sur l'état réel du workspace après exécution.
+    tests::TempDir workspace("e2e_write_state");
+    ToolRegistry registry;
+    register_workspace_tools(registry, workspace.path());
+
+    MockHttpServer server;
+    server.enqueue(stream_response(
+        delta_tool_call(0, "call_w", {{"name", "write_file"}, {"arguments", ""}})
+        + delta_tool_call(0, "", {{"arguments", "{\"path\":\"note"}})
+        + delta_tool_call(0, "", {{"arguments", ".txt\",\"content\":"}})
+        + delta_tool_call(0, "", {{"arguments", "\"bonjour monde\"}"}})
+        + sse_done()));
+    server.enqueue(stream_response(text_stream("ecrit")));
+
+    Agent agent(registry, config_for(server));
+    bool tool_ok = false;
+    AgentCallbacks callbacks;
+    callbacks.on_tool_result = [&tool_ok](const ToolOutcome& outcome) {
+        tool_ok = outcome.ok;
+    };
+
+    CHECK_EQ(agent.send("ecris note.txt", callbacks), std::string("ecrit"));
+    CHECK(tool_ok);
+
+    // Preuve d'état final : lecture du fichier réellement présent sur le disque,
+    // et non du texte du modèle ni du message de l'outil.
+    std::ifstream file(workspace.path() / "note.txt", std::ios::binary);
+    CHECK(file.good());
+    const std::string on_disk((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    CHECK_EQ(on_disk, std::string("bonjour monde"));
 }

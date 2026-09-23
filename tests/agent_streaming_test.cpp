@@ -368,13 +368,17 @@ TEST(agent, arguments_invalides_retourne_tool_error)
     }
 }
 
-TEST(agent, tool_call_sans_id_ni_nom_ne_corrompt_pas_le_flux)
+TEST(agent, tool_call_sans_id_ou_nom_est_refuse)
 {
-    // Constat PHASE 1 (risque R1) : la boucle de dispatch utilise .at("id") et
-    // .at("function").at("name") SANS try. Test : un delta ne fournissant que
-    // l'index produit un message dont les champs sont toujours présents (id et
-    // name vides), donc .at() ne peut pas lever. Le tour se poursuit
-    // normalement et aucun historique incohérent n'est créé.
+    // Constat PHASE 1 (risque R1) : la boucle de dispatch utilisait .at("id") et
+    // .at("function").at("name") SANS validation. Un delta ne fournissant que
+    // l'index produisait un tool call aux champs vides, dispatché comme outil
+    // inconnu puis inscrit dans l'historique (id vide => échange non conforme au
+    // protocole OpenAI, le modèle « croyant » avoir appelé un outil).
+    //
+    // Comportement corrigé (R0) : un tool call sans id ni nom exploitables est
+    // refusé ; le tour n'ajoute AUCUN message assistant ni « tool » à
+    // l'historique et n'exécute aucun outil.
     tests::TempDir workspace("agent_empty_fields");
     ToolRegistry registry;
     register_workspace_tools(registry, workspace.path());
@@ -385,15 +389,20 @@ TEST(agent, tool_call_sans_id_ni_nom_ne_corrompt_pas_le_flux)
 
     Agent agent(registry, config_for(server));
     std::string error_message;
-    std::string reply;
     try {
-        reply = agent.send("outil sans nom", AgentCallbacks{});
-    } catch (const std::exception& error) {
+        agent.send("outil sans nom", AgentCallbacks{});
+    } catch (const AgentError& error) {
         error_message = error.what();
     }
 
-    CHECK_EQ(error_message, std::string(""));
-    CHECK_EQ(reply, std::string("ok"));
+    CHECK(error_message.find("malformed tool call") != std::string::npos);
+    // Une seule requête émise : le tool call invalide n'a déclenché aucune
+    // exécution.
+    CHECK_EQ(server.received_bodies().size(), std::size_t(1));
+
+    // Le tour suivant fonctionne, et l'historique ne contient aucun message
+    // assistant/tool issu du tour refusé.
+    CHECK_EQ(agent.send("second", AgentCallbacks{}), std::string("ok"));
 
     const auto bodies = server.received_bodies();
     CHECK_EQ(bodies.size(), std::size_t(2));
@@ -401,11 +410,134 @@ TEST(agent, tool_call_sans_id_ni_nom_ne_corrompt_pas_le_flux)
         return;
     }
     const auto second = nlohmann::json::parse(bodies[1]);
-    const auto roles = roles_of(second.at("messages"));
-    // Aucune exception : l'historique reste structurellement coherent.
-    CHECK(roles == std::vector<std::string>({"user", "assistant", "tool"}));
-    const auto tool_contents = contents_of_role(second.at("messages"), "tool");
-    CHECK(tool_contents == std::vector<std::string>{"tool error: unknown tool: "});
+    CHECK(roles_of(second.at("messages")) == std::vector<std::string>({"user", "user"}));
+    CHECK(contents_of_role(second.at("messages"), "assistant").empty());
+    CHECK(contents_of_role(second.at("messages"), "tool").empty());
+}
+
+// ---------------------------------------------------------------------------
+// C. Complétude du flux et état d'exécution (Phase R0)
+// ---------------------------------------------------------------------------
+
+TEST(agent, flux_sans_done_refuse_et_historique_preserve)
+{
+    // Défaut initial : un flux coupé avant "[DONE]" était accepté comme réponse
+    // finale, ce qui faisait passer une réponse partielle pour un message
+    // assistant complet (« correction annoncée » sans preuve d'exécution).
+    tests::TempDir workspace("agent_no_done");
+    ToolRegistry registry;
+    register_workspace_tools(registry, workspace.path());
+
+    MockHttpServer server;
+    // Deux fragments de texte, puis AUCUN "[DONE]" : le flux s'arrête.
+    server.enqueue(stream_response(delta_content("Bon") + delta_content("jour")));
+    server.enqueue(stream_response(text_stream("reprise")));
+
+    Agent agent(registry, config_for(server));
+    std::string error_message;
+    int fragments = 0;
+    AgentCallbacks callbacks;
+    callbacks.on_text_delta = [&fragments](const std::string&) { ++fragments; };
+
+    try {
+        agent.send("bonjour", callbacks);
+    } catch (const AgentError& error) {
+        error_message = error.what();
+    }
+
+    CHECK(error_message.find("incomplete model stream") != std::string::npos);
+    // Le texte a bien été streamé avant la détection : le test est pertinent.
+    CHECK(fragments > 0);
+
+    // Le tour suivant réussit ; l'historique ne contient pas de message assistant
+    // partiel (seuls les messages user y figurent).
+    CHECK_EQ(agent.send("second", AgentCallbacks{}), std::string("reprise"));
+
+    const auto bodies = server.received_bodies();
+    CHECK_EQ(bodies.size(), std::size_t(2));
+    if (bodies.size() != 2) {
+        return;
+    }
+    const auto second = nlohmann::json::parse(bodies[1]);
+    CHECK(roles_of(second.at("messages")) == std::vector<std::string>({"user", "user"}));
+    CHECK(contents_of_role(second.at("messages"), "assistant").empty());
+}
+
+TEST(agent, reponse_tronquee_par_limite_de_tokens_refusee)
+{
+    // finish_reason="length" signifie que le modèle a été coupé par sa limite de
+    // tokens : le message est partiel et ne doit pas être accepté comme définitif.
+    tests::TempDir workspace("agent_length");
+    ToolRegistry registry;
+    register_workspace_tools(registry, workspace.path());
+
+    nlohmann::json event;
+    event["choices"] = nlohmann::json::array(
+        {nlohmann::json{{"index", 0}, {"delta", {{"content", "debut de phrase"}}}, {"finish_reason", "length"}}});
+
+    MockHttpServer server;
+    server.enqueue(stream_response(sse(event) + sse_done()));
+
+    Agent agent(registry, config_for(server));
+    std::string error_message;
+    try {
+        agent.send("raconte", AgentCallbacks{});
+    } catch (const AgentError& error) {
+        error_message = error.what();
+    }
+
+    CHECK(error_message.find("finish_reason=length") != std::string::npos);
+    CHECK_EQ(server.received_bodies().size(), std::size_t(1));
+}
+
+TEST(agent, derniere_trame_sans_ligne_vide_est_traitee)
+{
+    // Défaut initial : le parser SSE sans flush() abandonnait silencieusement la
+    // dernière trame non terminée par une ligne vide. Ici, le "[DONE]" final
+    // n'est pas suivi de "\n\n" : il doit tout de même être pris en compte.
+    tests::TempDir workspace("agent_unterminated");
+    ToolRegistry registry;
+    register_workspace_tools(registry, workspace.path());
+
+    MockHttpServer server;
+    server.enqueue(stream_response(delta_content("fini") + "data: [DONE]"));
+
+    Agent agent(registry, config_for(server));
+    CHECK_EQ(agent.send("termine", AgentCallbacks{}), std::string("fini"));
+}
+
+TEST(agent, callback_tool_result_expose_le_verdict_d_execution)
+{
+    // Le programme doit pouvoir établir un verdict d'exécution fondé sur ce qui a
+    // réellement été exécuté, indépendamment du texte du modèle.
+    tests::TempDir workspace("agent_tool_outcome");
+    prepare_workspace(workspace.path());
+    ToolRegistry registry;
+    register_workspace_tools(registry, workspace.path());
+
+    MockHttpServer server;
+    server.enqueue(stream_response(
+        delta_tool_call(0, "call_ok", {{"name", "read_file"}, {"arguments", "{\"path\":\"a.txt\"}"}})
+        + delta_tool_call(1, "call_ko", {{"name", "nope_tool"}, {"arguments", "{}"}}) + sse_done()));
+    server.enqueue(stream_response(text_stream("ok")));
+
+    Agent agent(registry, config_for(server));
+    std::vector<ToolOutcome> outcomes;
+    AgentCallbacks callbacks;
+    callbacks.on_tool_result = [&outcomes](const ToolOutcome& outcome) { outcomes.push_back(outcome); };
+
+    CHECK_EQ(agent.send("lis et appelle un outil inconnu", callbacks), std::string("ok"));
+
+    CHECK_EQ(outcomes.size(), std::size_t(2));
+    if (outcomes.size() != 2) {
+        return;
+    }
+    CHECK_EQ(outcomes[0].name, std::string("read_file"));
+    CHECK(outcomes[0].ok);
+    CHECK_EQ(outcomes[0].result, std::string("hello world\n"));
+    CHECK_EQ(outcomes[1].name, std::string("nope_tool"));
+    CHECK(!outcomes[1].ok);
+    CHECK(outcomes[1].result.find("tool error:") == 0);
 }
 
 TEST(agent, deltas_non_conformes_ignores)

@@ -79,9 +79,9 @@ TEST(sse, plusieurs_evenements_dans_un_meme_chunk)
 
 TEST(sse, evenement_incomplet_en_fin_de_flux)
 {
-    // Comportement observé : le parseur n'expose pas de flush(), donc un
-    // événement non terminé par une ligne vide reste bufferisé et est perdu.
-    // Consigné comme comportement réel, pas comme comportement souhaitable.
+    // feed() ne restitue que les événements terminés par une ligne vide : un
+    // événement non terminé reste bufferisé (il n'est PAS perdu : flush() le
+    // restitue en fin de flux, voir flush_* ci-dessous).
     const auto payloads = feed_one("data: jamais_termine");
     CHECK_EQ(payloads.size(), std::size_t(0));
 }
@@ -189,4 +189,29 @@ TEST(sse, feed_all_equivalence)
         CHECK_EQ(payloads[0], std::string("1"));
         CHECK_EQ(payloads[1], std::string("2"));
     }
+}
+
+TEST(sse, flush_restitue_l_evenement_non_termine)
+{
+    // Correctif R0 : un flux coupé juste avant sa ligne vide finale ne doit plus
+    // perdre silencieusement sa dernière trame.
+    SseParser parser;
+    CHECK_EQ(parser.feed("data: dernier").size(), std::size_t(0));
+
+    const auto tail = parser.flush();
+    CHECK_EQ(tail.size(), std::size_t(1));
+    if (tail.size() == 1) {
+        CHECK_EQ(tail[0], std::string("dernier"));
+    }
+    // Après flush, le buffer est vide : un second appel ne rend rien.
+    CHECK_EQ(parser.buffered_bytes(), std::size_t(0));
+    CHECK_EQ(parser.flush().size(), std::size_t(0));
+}
+
+TEST(sse, flush_sans_reliquat_ne_rend_rien)
+{
+    SseParser parser;
+    CHECK_EQ(parser.feed("data: complet\n\n").size(), std::size_t(1));
+    CHECK_EQ(parser.buffered_bytes(), std::size_t(0));
+    CHECK_EQ(parser.flush().size(), std::size_t(0));
 }

@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -147,6 +148,23 @@ TEST(workspace, ecriture_puis_lecture)
     CHECK_EQ(call(registry, "write_file", R"({"path":"a.txt","content":"bonjour"})"),
              std::string("wrote 7 bytes to a.txt (created new file)"));
     CHECK_EQ(call(registry, "read_file", R"({"path":"a.txt"})"), std::string("bonjour"));
+}
+
+TEST(workspace, ecriture_verifiee_sur_disque)
+{
+    // Correctif R0 : write_file relit le fichier écrit avant de publier le
+    // succès. Le test contrôle l'état final sur le disque, indépendamment du
+    // message retourné.
+    tests::TempDir workspace("write_verified");
+    auto registry = make_registry(workspace.path());
+
+    const std::string content = "ligne1\nligne2\nfin";
+    call(registry, "write_file", R"({"path":"verif.txt","content":"ligne1\nligne2\nfin"})");
+
+    std::ifstream file(workspace.path() / "verif.txt", std::ios::binary);
+    CHECK(file.good());
+    const std::string on_disk((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    CHECK_EQ(on_disk, content);
 }
 
 TEST(workspace, creation_repertoires_parents)

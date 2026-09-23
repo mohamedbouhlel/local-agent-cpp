@@ -220,6 +220,31 @@ std::filesystem::path temporary_path_for(const std::filesystem::path& target)
            + std::to_string(counter.fetch_add(1)));
 }
 
+// Relit le fichier temporaire et vérifie qu'il contient exactement les octets
+// attendus. Le succès d'une écriture n'est rapporté qu'après cette
+// vérification : le message de l'outil devient une preuve d'état final, non une
+// simple déclaration.
+void verify_written_file(const std::filesystem::path& path,
+                         const std::string& expected,
+                         const std::string& relative)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("post-write verification failed: cannot reopen " + relative);
+    }
+
+    std::string actual;
+    actual.resize(expected.size());
+    file.read(actual.data(), static_cast<std::streamsize>(actual.size()));
+    const auto bytes = static_cast<std::size_t>(file.gcount());
+
+    if (bytes != expected.size() || actual != expected) {
+        throw std::runtime_error("post-write verification failed: " + relative + " contains "
+                                 + std::to_string(bytes) + " of " + std::to_string(expected.size())
+                                 + " expected bytes");
+    }
+}
+
 class TemporaryFileGuard {
 public:
     explicit TemporaryFileGuard(std::filesystem::path path)
@@ -316,6 +341,11 @@ std::string write_file(const std::filesystem::path& root, const nlohmann::json& 
                 "failed to apply existing file permissions to temporary file: " + error.message());
         }
     }
+
+    // Preuve d'état final avant publication : on relit le fichier temporaire et
+    // on le compare au contenu attendu. En cas d'écart, l'exception laisse la
+    // cible intacte (le garde supprime le fichier temporaire).
+    verify_written_file(temporary_path, content, relative);
 
     std::filesystem::rename(temporary_path, path, error);
     if (error) {

@@ -112,6 +112,21 @@ void apply_tool_call_delta(StreamingMessageAccumulator& accumulator, const nlohm
     }
 }
 
+// Mémorise le dernier finish_reason non vide rencontré ("stop", "length",
+// "tool_calls", ...). Un flux sans finish_reason explicite reste accepté : la
+// complétude est prouvée par le marqueur "[DONE]", pas par ce champ.
+void collect_finish_reason(const nlohmann::json& event, std::string& finish_reason)
+{
+    if (!event.contains("choices") || !event.at("choices").is_array() || event.at("choices").empty()) {
+        return;
+    }
+
+    const auto& choice = event.at("choices").at(0);
+    if (choice.contains("finish_reason") && choice.at("finish_reason").is_string()) {
+        finish_reason = choice.at("finish_reason").get<std::string>();
+    }
+}
+
 void apply_stream_delta(StreamingMessageAccumulator& accumulator,
                         const nlohmann::json& event,
                         const AgentCallbacks& callbacks)
@@ -201,6 +216,30 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
 
         SseParser parser;
         StreamingMessageAccumulator accumulator;
+        bool saw_done = false;
+        std::string finish_reason;
+
+        // Consomme un payload SSE déjà délimité.
+        auto consume = [&accumulator, &callbacks, &finish_reason, &saw_done](const std::string& data) {
+            // "[DONE]" n'a pas de sens pour le parser SSE : on le reconnaît ici,
+            // côté OpenAI, et il constitue la preuve de complétude du flux.
+            if (data == "[DONE]") {
+                saw_done = true;
+                return;
+            }
+
+            nlohmann::json event;
+            try {
+                event = nlohmann::json::parse(data);
+            } catch (const nlohmann::json::exception&) {
+                // Fragment SSE isolé malformé : ignoré sans interrompre le
+                // reste du flux.
+                return;
+            }
+
+            collect_finish_reason(event, finish_reason);
+            apply_stream_delta(accumulator, event, callbacks);
+        };
 
         // Invariant : si post_streaming lève (coupure en plein flux, statut
         // non-2xx, ...), on sort de send() sans avoir rien ajouté à
@@ -211,26 +250,31 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
             headers,
             payload.dump(),
             config_.timeout_seconds,
-            [&parser, &accumulator, &callbacks](const std::string& chunk) {
+            [&parser, &consume](const std::string& chunk) {
                 for (const auto& data : parser.feed(chunk)) {
-                    // "[DONE]" n'a pas de sens pour le parser SSE : on le
-                    // reconnaît ici, côté OpenAI.
-                    if (data == "[DONE]") {
-                        continue;
-                    }
-
-                    nlohmann::json event;
-                    try {
-                        event = nlohmann::json::parse(data);
-                    } catch (const nlohmann::json::exception&) {
-                        // Fragment SSE isolé malformé : ignoré sans interrompre
-                        // le reste du flux.
-                        continue;
-                    }
-
-                    apply_stream_delta(accumulator, event, callbacks);
+                    consume(data);
                 }
             });
+
+        // Une trame finale non terminée par une ligne vide ne doit pas être
+        // perdue silencieusement (dette §B.2 de docs/roadmap/ROADMAP.md).
+        for (const auto& data : parser.flush()) {
+            consume(data);
+        }
+
+        // Complétude du flux : l'absence du marqueur "[DONE]" signifie que le
+        // flux a été coupé avant la fin. Refuser le tour évite d'accepter une
+        // réponse partielle comme message assistant définitif (écart entre
+        // l'action prétendue par le modèle et l'action réellement reçue).
+        if (!saw_done) {
+            throw AgentError("incomplete model stream: missing [DONE] marker");
+        }
+
+        // Réponse coupée par la limite de tokens du modèle : le message est
+        // partiel, il ne peut pas être traité comme définitif.
+        if (finish_reason == "length") {
+            throw AgentError("model response truncated: finish_reason=length");
+        }
 
         const auto assistant_message = build_assistant_message(accumulator);
 
@@ -239,6 +283,18 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
             append_message({assistant_message});
             trim_history();
             return content;
+        }
+
+        // Validation des tool calls : un tool call sans identifiant ni nom
+        // exploitables produirait un message assistant et un message "tool" non
+        // conformes au protocole OpenAI (id vide). On refuse le tour plutôt que
+        // d'inscrire un échange incohérent dans l'historique.
+        for (const auto& tool_call : assistant_message.at("tool_calls")) {
+            const auto id = tool_call.at("id").get<std::string>();
+            const auto name = tool_call.at("function").at("name").get<std::string>();
+            if (id.empty() || name.empty()) {
+                throw AgentError("malformed tool call from model: empty id or name");
+            }
         }
 
         append_message({assistant_message});
@@ -252,17 +308,25 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
             }
 
             std::string result;
+            bool ok = true;
             try {
                 result = tools_.execute(name, arguments);
             } catch (const std::exception& error) {
+                ok = false;
                 result = std::string("tool error: ") + error.what();
+            }
+
+            // Verdict d'exécution observé par le programme, indépendant du texte
+            // du modèle.
+            if (callbacks.on_tool_result) {
+                callbacks.on_tool_result(ToolOutcome{name, ok, result});
             }
 
             append_message({make_tool_message(tool_call_id, result)});
         }
     }
 
-    throw std::runtime_error("tool call loop exceeded maximum iterations");
+    throw AgentError("tool call loop exceeded maximum iterations");
 }
 
 void Agent::append_message(Message message)

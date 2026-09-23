@@ -2,6 +2,7 @@
 
 #include <curl/curl.h>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <string>
@@ -114,6 +115,10 @@ std::string perform_request(const std::string& url,
     curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
     curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, timeout_seconds);
+    // Timeout de connexion distinct : borne l'établissement de la connexion à
+    // une fraction du timeout total (plafonnée à 10 s) pour signaler rapidement
+    // un serveur injoignable, sans attendre le timeout complet.
+    curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, std::min<long>(timeout_seconds, 10));
     curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, write_function);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, write_data);
     curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, error_buffer);
@@ -121,6 +126,11 @@ std::string perform_request(const std::string& url,
     const auto code = curl_easy_perform(curl.get());
     if (code != CURLE_OK) {
         const std::string detail = error_buffer[0] != '\0' ? error_buffer : curl_easy_strerror(code);
+        // Un timeout est distingué d'une coupure réseau : le message le dit
+        // explicitement (diagnostic « volume important puis timeout »).
+        if (code == CURLE_OPERATION_TIMEDOUT) {
+            throw HttpError("HTTP POST timed out after " + std::to_string(timeout_seconds) + "s: " + detail);
+        }
         throw HttpError("HTTP POST failed: " + detail);
     }
 

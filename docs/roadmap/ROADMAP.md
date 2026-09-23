@@ -14,7 +14,7 @@
 |---|---|---|
 | REPL (bannière, `exit`/EOF, ligne vide ignorée) | implémenté | `src/main.cpp` |
 | Config 4 variables env, tous défauts, aucune obligatoire | implémenté | `src/main.cpp` (`load_config`, `timeout_from_env`) |
-| POST OpenAI non-streamé | implémenté, **plus utilisé par l'agent** | `http_client.cpp:post()` |
+| POST OpenAI non-streamé | implémenté, **sans appelant en production** — conservé (décision P3.1), couvert par 4 tests | `http_client.cpp:post()` |
 | POST streaming + callback par fragment | implémenté | `http_client.cpp:post_streaming()`, `perform_request()` |
 | Parsing SSE générique (frame `\n\n`/`\r\n\r\n`, commentaires, multi-`data:`) | implémenté | `src/sse_parser.cpp` |
 | Reconstruction du message depuis les deltas (content + tool_calls par `index`) | implémenté | `src/agent.cpp` (`StreamingMessageAccumulator`) |
@@ -37,8 +37,12 @@ supprimés (voir [`OPEN_QUESTIONS.md`](../questions/OPEN_QUESTIONS.md) Q1).
 
 Classés par preuve, sans priorisation (la priorisation est en §D).
 
-1. **`HttpClient::post()` est du code mort applicatif** : défini, fonctionnel,
-   plus appelé (`grep` : seul `post_streaming` est utilisé par `Agent`).
+1. ~~`HttpClient::post()` : code mort applicatif~~ — **RÉSOLU (P3.1, décision A :
+   conservé)**. Fait inchangé : aucun appelant en production (`grep` : seul
+   `post_streaming` est utilisé par `Agent`). Mais l'API est **conservée**
+   (délégation à `perform_request()`, partagé) et **déjà couverte par 4 tests**
+   (`tests/http_client_test.cpp`). Ce n'est plus une dette ouverte (voir
+   [`PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md`](../reports/PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md)).
 2. **`SseParser` n'a pas de `flush()`** : un ultime événement non terminé par
    une ligne vide est silencieusement abandonné. Sans impact avec OpenAI (qui
    termine ses événements et envoie `data: [DONE]\n\n`).
@@ -141,9 +145,14 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
 
 ### Vague 2 — Boucher les trous de robustesse (indépendants entre eux)
 
-- **P3 (PROPOSITION)** — Décider du sort de `HttpClient::post()` : soit le
-  couvrir par un test (il reste une API publique utile), soit le retirer.
-  Dette §B.1.
+- **P3 (DÉCIDÉ — option A, P3.1)** — `HttpClient::post()` est **conservé** :
+  API publique disponible, **déjà couverte par 4 tests**
+  (`tests/http_client_test.cpp`), déléguant à `perform_request()` (partagé avec
+  `post_streaming()`). L'absence d'appelant en production est un fait, non un
+  motif de suppression. Dette §B.1 **close** ; préparation
+  [`PHASE_3_HTTPCLIENT_POST_REPORT.md`](../reports/PHASE_3_HTTPCLIENT_POST_REPORT.md),
+  réconciliation
+  [`PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md`](../reports/PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md).
 - **P4 (PROPOSITION)** — Plafonner `list_files` (parité avec
   `max_search_results`) et supprimer la branche morte. Dettes §B.6, §B.7.
 - **P5 (PROPOSITION)** — Borner `search_files` (taille de ligne, taille de
@@ -199,7 +208,7 @@ streaming des résultats d'outils. `[DÉDUCTION d'absence — cf. D5]`
 ```
 P1 + P2  (tests + mock versionné)      ← débloque la vérifiabilité
    ↓
-P3..P8   (dettes de robustesse, indépendantes)
+P4..P8   (dettes de robustesse, indépendantes ; P3 traité)
    ↓
 P9..P13  (config, cohérence, doc)
    ↓

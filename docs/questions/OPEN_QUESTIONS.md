@@ -28,12 +28,21 @@ non documenté.
 futurs consommateurs d'`agent_core`.
 
 ### Q3. `HttpClient::post()` doit-il rester ?
-`[FAIT]` Défini et fonctionnel, plus appelé (`grep` : seul `post_streaming`
-est utilisé). Conservé explicitement lors du passage au streaming.
-**Pourquoi ça compte** : API publique non testée et non utilisée = dette ;
-ou API volontairement stable pour un futur appelant non-streamé.
-**Ce qui trancherait** : décision « garder + tester » vs « supprimer »
-([`ROADMAP.md`](../roadmap/ROADMAP.md) P3).
+`[RÉSOLU — décision du mainteneur (P3.1) : **CONSERVER**]`
+`[FAIT]` Défini et fonctionnel, **aucun appelant en production** (`grep` : seul
+`post_streaming` est utilisé par `Agent`). Conservé explicitement lors du
+passage au streaming (`e0b1771`), où son corps a été extrait dans
+`perform_request()` (partagé avec `post_streaming()`).
+`[CORRECTION]` L'affirmation initiale « API publique **non testée** » est
+**périmée** : `post()` est **couvert par 4 tests** — succès, statut non-2xx,
+échec curl, réponse tronquée (`tests/http_client_test.cpp`).
+**Décision** : la méthode est **conservée**. Elle délègue à un helper partagé,
+ne coûte rien à maintenir et reste disponible pour un appelant non-streamé ;
+l'absence d'appelant en production ne suffit pas à la déclarer inutile.
+**Trace** : préparation
+[`PHASE_3_HTTPCLIENT_POST_REPORT.md`](../reports/PHASE_3_HTTPCLIENT_POST_REPORT.md) ;
+réconciliation
+[`PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md`](../reports/PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md).
 
 ## Bloc 2 — Cible LLM et secrets
 

@@ -127,8 +127,11 @@ Lecture exclusivement via `std::getenv()` ; **aucun parsing `.env` en C++**
     échec curl, `HttpError("HTTP POST failed with status <N>: <corps>")` sur
     statut non-2xx ;
   - `CURLOPT_TIMEOUT = timeout_seconds` (pas de `CONNECTTIMEOUT` distinct).
-- `post()` reste défini et fonctionnel, mais **n'est plus appelé** par
-  `Agent` (voir dette technique, [`PROJECT_HISTORY.md`](../history/PROJECT_HISTORY.md) §5).
+- `post()` est **conservé** (décision P3.1) : défini et fonctionnel, **sans**
+  appelant en **production** (`Agent` utilise `post_streaming`), mais **couvert
+  par 4 tests** (`tests/http_client_test.cpp`). L'absence d'appelant interne ne
+  justifie pas sa suppression : il délègue à `perform_request()` (partagé) et
+  reste disponible comme API non-streamée.
 - `SseParser::feed(chunk) -> vector<string>` : bufferise, découpe aux
   séparateurs d'événement (`\n\n` ou `\r\n\r\n`), ignore les commentaires
   `:` et les autres champs, retourne les payloads `data:` (préfixe retiré).

@@ -66,12 +66,49 @@ $ git commit -m "fix: enforce stream completeness and verifiable tool execution"
 
 ## D. COMMIT 2 — DOCUMENTATION (P3.3 + R0)
 
-**Staging** (`git add -- <9 chemins explicites>`) puis contrôles : *(résultats
-consignés en Phase 5 ci-dessous)*.
+**Staging** (`git add -- <9 chemins explicites>`) puis contrôles :
 
-## E. VÉRIFICATIONS FINALES (PHASE 4 / PHASE 5)
+| Contrôle | Résultat |
+|---|---|
+| `git diff --cached --check` | **silencieux** |
+| `git diff --cached --stat` | **9 fichiers**, `885 insertions(+), 24 deletions(-)` |
+| `git diff --cached --name-status` | **4 `M` + 5 `A`** — exactement les 9 chemins autorisés (§B) |
+| `git status --short` | seul reste non suivi le fichier **exclu** (`2026-09-23_132149-…md`) |
+| `git diff --cached --name-only -- src include tests CMakeLists.txt` | **vide** ⇒ **aucun** code/test stagé |
 
-*(À compléter après le commit 2 — cf. §G.)*
+**Commit créé** :
+
+```
+$ git commit -m "docs: reconcile R0 invariants, test counts and P3.3 notes"
+[main d155e04] docs: reconcile R0 invariants, test counts and P3.3 notes
+ 9 files changed, 885 insertions(+), 24 deletions(-)
+```
+
+| Élément | Valeur |
+|---|---|
+| **Hash** | `d155e04c024d4da51c22256eb330a5f89aab83ee` |
+| Message | `docs: reconcile R0 invariants, test counts and P3.3 notes` |
+| Contenu | **9 fichiers** : `M` ×4 (`AGENTS.md`, `docs/README.md`, `docs/questions/OPEN_QUESTIONS.md`, `docs/roadmap/ROADMAP.md`) + `A` ×5 (rapports P3.3, R0 fiabilisation, R0 documentation, audit de clôture, ce rapport) |
+| Après commit | index **vide** ; aucun changement suivi non commité |
+
+## E. VÉRIFICATIONS FINALES (PHASE 4)
+
+| # | Commande | Résultat exact |
+|---|---|---|
+| E-1 | `git status --short` | `?? docs/reports/2026-09-23_132149-test-fonctionnel-agent-litellm.md` (seul élément) |
+| E-2 | `git status --branch --short` | `## main` + le `??` ci-dessus |
+| E-3 | `git log -2 --oneline` | `d155e04 …` (docs) **puis** `0802357 …` (fix) — **ordre attendu** |
+| E-4 | `git diff --check` | **silencieux** |
+| E-5 | `git diff --cached --check` | **silencieux** |
+| E-6 | `git diff --stat` | **vide** ⇒ aucun changement suivi non commité |
+| E-7 | `git diff --cached --stat` | **vide** ⇒ **rien de stagé** |
+| E-8 | `git show --name-status` des 2 commits | commit 1 = **12** chemins code/tests ; commit 2 = **9** chemins documentaires — **aucun hors liste** |
+| E-9 | `git rev-list --count HEAD` | **34** (32 → 34) |
+| E-10 | Fichier exclu | toujours `??`, **intact, non commité** |
+
+**Conclusion Phase 4** : les deux commits sont présents dans le bon ordre, ne
+contiennent que leurs fichiers autorisés, rien n'est stagé, et le seul écart
+résiduel est le fichier **exclu** sur arbitrage (§F/A-1). **Aucun push.**
 
 ## F. ANOMALIES ET RÉSERVES
 
@@ -83,4 +120,44 @@ consignés en Phase 5 ci-dessous)*.
 
 ## G. VERDICT
 
-*(À compléter après la Phase 5.)*
+### VALIDÉ AVEC RÉSERVES
+
+**Justification** :
+
+1. **Deux commits atomiques créés** : `0802357` (R0 code/tests, **12** fichiers)
+   puis `d155e04` (documentation P3.3 + R0, **9** fichiers), dans l'**ordre
+   attendu**.
+2. **Périmètres respectés** : chaque commit ne contient **que** ses fichiers
+   autorisés (§C, §D, E-8) ; **aucun** code/test dans le commit documentaire,
+   **aucune** documentation dans le commit R0 ; staging par **listes explicites**
+   (jamais `git add .` / `git add -A`).
+3. **Vérifications Phase 4 concluantes** (E-1 → E-10) : aucun fichier stagé,
+   `--check` silencieux, aucun changement suivi non commité.
+4. **Rapports inclus** dans le commit documentaire ; index documentaire cohérent.
+
+**Réserves** :
+
+* **A-1** — `docs/reports/2026-09-23_132149-test-fonctionnel-agent-litellm.md`
+  reste **non suivi** (arbitrage « **exclure** ») : écart résiduel **assumé**,
+  non indexé, **intact**.
+* **A-2** — ce rapport a été **complété après** le commit 2 (hash du commit 2,
+  résultats Phase 4) : un **commit documentaire complémentaire** enregistre cette
+  mise à jour, conformément à la consigne de clôture.
+* **A-3** — `docs/README.md` demeure un fichier **mixte** (index P3.3 + R0) :
+  mélange **inhérent**, non corrigé (interdiction de réécrire les fichiers mixtes).
+
+**Anomalies bloquantes : aucune** au terme de la clôture.
+
+## H. ÉTAT FINAL (résumé)
+
+| Élément | Valeur |
+|---|---|
+| Branche | `main` |
+| HEAD | `d155e04c024d4da51c22256eb330a5f89aab83ee` |
+| Commits | `0802357` (R0 code/tests) → `d155e04` (docs P3.3 + R0) ; **34** au total |
+| Index | **vide** |
+| Non suivi | `docs/reports/2026-09-23_132149-test-fonctionnel-agent-litellm.md` (**exclu sur arbitrage**) |
+| Push | **aucun** |
+
+*Les résultats ci-dessus précèdent le commit documentaire complémentaire (A-2),
+qui n'ajoute que ce rapport.*

@@ -36,6 +36,11 @@ Artefacts **datés**, liés à un jalon précis.
 | [`reports/PHASE_3_HTTPCLIENT_POST_REPORT.md`](reports/PHASE_3_HTTPCLIENT_POST_REPORT.md) | P3 — préparation d'arbitrage sur `HttpClient::post()` : contrat, usages, couverture (4 cas), options A/B, recommandation |
 | [`reports/PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md`](reports/PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md) | P3.1 — réconciliation documentaire après décision A : `post()` conservé et déjà testé (ROADMAP, Q3, contexte) |
 | [`reports/PHASE_3_2_GIT_CLOSURE_AUDIT_REPORT.md`](reports/PHASE_3_2_GIT_CLOSURE_AUDIT_REPORT.md) | P3/P3.1 — audit de clôture Git : périmètre, cohérence, vérifications, verdict |
+| [`reports/PHASE_3_3_TEST_DOCUMENTATION_RECONCILIATION_REPORT.md`](reports/PHASE_3_3_TEST_DOCUMENTATION_RECONCILIATION_REPORT.md) | P3.3 — dette E-1 : suite de tests « présente » (66 cas / 264 assertions, 5 groupes), CI absente ; ROADMAP §A et Q1 réconciliés |
+| [`reports/PHASE_R0_EXECUTION_LOOP_RELIABILITY_REPORT.md`](reports/PHASE_R0_EXECUTION_LOOP_RELIABILITY_REPORT.md) | R0 — fiabilisation de la boucle : complétude du flux (`[DONE]`), `flush()`, validation des tool calls, preuve d'écriture, verdict d'exécution (75 cas / 298 assertions) |
+| [`reports/PHASE_R0_DOCUMENTATION_RECONCILIATION_REPORT.md`](reports/PHASE_R0_DOCUMENTATION_RECONCILIATION_REPORT.md) | R0 — réconciliation documentaire des compteurs : référence courante **75 cas / 298 assertions** (R0) vs relevé historique **66 / 264** (P3.3) |
+| [`reports/PHASE_GIT_CLOSURE_AUDIT_REPORT.md`](reports/PHASE_GIT_CLOSURE_AUDIT_REPORT.md) | audit de clôture Git : inventaire R0 / P3.3, matrice de séparation, fichiers mixtes et risques avant staging |
+| [`reports/PHASE_GIT_CLOSURE_EXECUTION_REPORT.md`](reports/PHASE_GIT_CLOSURE_EXECUTION_REPORT.md) | clôture Git en 2 commits — **constat d'arrêt (BLOQUÉ)** : fichier non suivi inattendu hors listes autorisées |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

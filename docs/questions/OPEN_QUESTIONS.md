@@ -8,15 +8,23 @@
 ## Bloc 1 — Validations et absence de tests
 
 ### Q1. Les validations citées par les itérations ne sont pas reproductibles.
-`[FAIT]` Aucun fichier de test, script de validation ou CI n'est suivi par
-Git (`git ls-files` ; `AGENTS.md:18` : « Pas de suite de tests pour
-l'instant »). Les harnais C++ et mock serveurs utilisés pendant les
-itérations ont été créés dans des répertoires temporaires puis supprimés.
-**Pourquoi ça compte** : rien dans le dépôt ne prouve le comportement du
-streaming, de la troncature, du sandbox ou de l'écriture atomique. Toute
-régression future serait silencieuse.
-**Ce qui trancherait** : [`ROADMAP.md`](../roadmap/ROADMAP.md) P1/P2 (suite de tests versionnée + mock
-SSE versionné).
+`[RÉSOLU — P1.1/P2 : suite de tests versionnée et exécutable depuis le dépôt]`
+`[FAIT — état historique, audit à 4f33b62]` Aucun fichier de test, script de
+validation ou CI n'**était** suivi par Git ; `AGENTS.md` indiquait alors « Pas de
+suite de tests pour l'instant ». Les harnais C++ et mock serveurs utilisés
+pendant les itérations avaient été créés dans des répertoires temporaires puis
+supprimés.
+`[CORRECTION — état actuel, vérifié]` La suite est **versionnée** (`tests/`,
+11 fichiers) et **exécutable localement** (`-DAGENT_BUILD_TESTS=ON` puis
+`ctest`) : **5** groupes CTest, **75 cas / 298 assertions** (référence courante,
+R0 ; le relevé **P3.3** valait **66 cas / 264 assertions**, avant les 9 cas
+ajoutés par R0), **0 échec**. La citation « `AGENTS.md:18` : Pas de suite de
+tests » est **périmée** : la section `## Test` décrit désormais la suite et son
+activation.
+**Reste ouvert (distinct)** : **aucune CI** (intégration continue) n'est
+versionnée — non traité par cette réconciliation.
+**Résolution** : [`ROADMAP.md`](../roadmap/ROADMAP.md) **P1** (suite de tests) et
+**P2** (mock SSE versionné) sont **réalisés**.
 
 ### Q2. Le refactor `agent_core` est-il destiné aux tests, ou à autre chose ?
 `[FAIT + DÉDUCTION]` `47ccea9` et `8f015bf` justifient la bibliothèque par

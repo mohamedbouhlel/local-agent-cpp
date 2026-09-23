@@ -27,11 +27,26 @@
 | `write_file` : garde-fou `overwrite`, taille max, écriture atomique, permissions préservées | implémenté | `87eee25`, `116f61f` |
 | `agent_core` (lib) + `agent` (exe fin) | implémenté | `CMakeLists.txt`, `47ccea9` |
 | Docs `README.md`, `USAGE.md`, `AGENTS.md`, `CLAUDE.md` | implémenté | HEAD |
-| **Suite de tests / CI / validation versionnée** | **absente** | `git ls-files` ; `AGENTS.md:18` |
+| Suite de tests versionnée (micro-harnais maison + mock HTTP/SSE) | **présente** (P1.1/P2) | `tests/` (11 fichiers) ; `tests/CMakeLists.txt` ; `AGENTS.md` §Test |
+| Exécution de la suite : 5 groupes CTest, **75 cas / 298 assertions** (référence courante, R0) | **présente**, 0 échec | `-DAGENT_BUILD_TESTS=ON` + `ctest` |
+| CI (intégration continue) | **absente** | `git ls-files` (aucun workflow) |
 
-**Aucune fonctionnalité n'est « validée » au sens reproductible depuis le
-dépôt.** Les validations ont eu lieu hors dépôt, dans des harnais temporaires
-supprimés (voir [`OPEN_QUESTIONS.md`](../questions/OPEN_QUESTIONS.md) Q1).
+**Correction (état actuel, P1.1/P2/R0).** La suite de tests est désormais
+**versionnée** et **exécutable depuis le dépôt** (`-DAGENT_BUILD_TESTS=ON` puis
+`ctest`) ; la validation ne dépend plus de harnais temporaires. Elle couvre
+notamment le streaming, la troncature d'historique, le sandbox, les outils et
+l'écriture atomique.
+
+**Compteurs — ne pas confondre les états.** Le total a évolué : **66 cas /
+264 assertions** au relevé **P3.3** (avant R0), porté à **75 cas / 298
+assertions** par **R0** (qui ajoute 9 cas). Le chiffre **66/264** ne vaut donc
+que pour l'état **P3.3** ; la référence **courante** est **75/298**.
+
+**État historique (audit à `4f33b62`).** Aucune suite de tests n'était alors
+versionnée et les validations reposaient sur des harnais **hors dépôt**,
+supprimés après usage : c'est ce constat, **aujourd'hui périmé**, qui fondait
+[`OPEN_QUESTIONS.md`](../questions/OPEN_QUESTIONS.md) Q1. La **CI** reste
+**absente** (fait actuel).
 
 ## B. FAITS — dettes techniques et travaux inachevés (constatés, non jugés)
 
@@ -43,9 +58,10 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
    (délégation à `perform_request()`, partagé) et **déjà couverte par 4 tests**
    (`tests/http_client_test.cpp`). Ce n'est plus une dette ouverte (voir
    [`PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md`](../reports/PHASE_3_1_HTTPCLIENT_POST_RECONCILIATION_REPORT.md)).
-2. **`SseParser` n'a pas de `flush()`** : un ultime événement non terminé par
-   une ligne vide est silencieusement abandonné. Sans impact avec OpenAI (qui
-   termine ses événements et envoie `data: [DONE]\n\n`).
+2. ~~**`SseParser` n'a pas de `flush()`**~~ — **RÉSOLU (Phase R0)** :
+   `SseParser::flush()` restitue désormais la dernière trame non terminée, et
+   l'agent exige le marqueur `[DONE]` pour accepter un flux comme complet
+   (`AgentError` sinon).
 3. **Chemins SSE non exercés** : séparateur CRLF et concaténation de
    plusieurs lignes `data:` sont implémentés (`src/sse_parser.cpp`) mais
    aucun test ne les couvre.
@@ -61,8 +77,9 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
 8. **`search_files` non borné par fichier/ligne** : lit des lignes entières
    sans limite de longueur, sans garde de taille de fichier, et reparcourt
    tout le workspace à chaque appel.
-9. **Pas de `CURLOPT_CONNECTTIMEOUT`** : seul `CURLOPT_TIMEOUT` est posé, donc
-   un hôte injoignable peut consommer le timeout complet.
+9. ~~**Pas de `CURLOPT_CONNECTTIMEOUT`**~~ — **RÉSOLU (Phase R0)** :
+   `CURLOPT_CONNECTTIMEOUT` est posé (`min(timeout, 10 s)`) et un timeout produit
+   un message distinct.
 10. **Limites non configurables** : `max_history_messages = 20`,
     `max_tool_iterations = 5`, `max_read_chars`, `max_write_chars`,
     `max_search_results` sont des `constexpr` de compilation.
@@ -157,13 +174,13 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
   `max_search_results`) et supprimer la branche morte. Dettes §B.6, §B.7.
 - **P5 (PROPOSITION)** — Borner `search_files` (taille de ligne, taille de
   fichier lue) et documenter la complexité du parcours. Dette §B.8.
-- **P6 (PROPOSITION)** — Ajouter `CURLOPT_CONNECTTIMEOUT` (valeur à décider,
-  p. ex. une fraction du timeout total). Dette §B.9.
+- **P6 (FAIT — Phase R0)** — `CURLOPT_CONNECTTIMEOUT` ajouté (borne
+  `min(timeout, 10 s)`) ; timeout distingué des autres échecs curl. Dette §B.9.
 - **P7 (PROPOSITION)** — Décider explicitement : soit `fsync` fichier +
   répertoire avant/après `rename`, soit documenter que la durabilité après
   crash n'est pas garantie. Dette §B.11.
-- **P8 (PROPOSITION)** — Ajouter `SseParser::flush()` **ou** documenter
-  formellement que le dernier événement non terminé est ignoré. Dette §B.2.
+- **P8 (FAIT — Phase R0)** — `SseParser::flush()` ajouté ; le dernier événement
+  non terminé est restitué (l'agent exige en outre `[DONE]`). Dette §B.2.
 
 ### Vague 3 — Configuration et cohérence
 

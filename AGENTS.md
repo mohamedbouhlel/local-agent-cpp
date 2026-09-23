@@ -17,7 +17,7 @@ set -a; source .env; set +a
 ## Test
 Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
 `test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
-(`mock_http_server.*`). 64 cas / 239 assertions répartis en 5 groupes : `sse`,
+(`mock_http_server.*`). 75 cas / 298 assertions répartis en 5 groupes : `sse`,
 `workspace`, `http`, `agent`, `mock`.
 Désactivée par défaut, elle ne pèse jamais sur l'exécutable de production ;
 activation explicite :
@@ -75,6 +75,31 @@ directement (voir Architecture) sans relister les .cpp.
   non-2xx), le message assistant partiellement reconstruit n'est JAMAIS ajouté
   à l'historique — seul le message user du tour y reste, pour pouvoir
   retenter sans historique corrompu.
+- Invariant complétude du flux (Phase R0) : un flux LLM n'est accepté comme
+  complet que s'il s'est terminé par le marqueur `[DONE]`. L'absence de ce
+  marqueur (flux coupé) ou un `finish_reason == "length"` (réponse tronquée par
+  la limite de tokens) lève `AgentError` : le message assistant n'est PAS ajouté
+  à l'historique et n'est PAS présenté comme une réponse définitive. En fin de
+  flux, `SseParser::flush()` restitue la dernière trame éventuellement non
+  terminée (auparavant perdue silencieusement).
+- Invariant validation des tool calls (Phase R0) : un tool call dont `id` ou
+  `function.name` est vide est refusé (`AgentError`) avant tout dispatch. Aucun
+  outil n'est exécuté et aucun message `assistant`/`tool` non conforme au
+  protocole n'entre dans l'historique.
+- État d'exécution explicite (Phase R0) : la boucle n'attribue aucun verdict
+  fondé sur les déclarations du modèle. Chaque exécution d'outil est exposée au
+  programme via `AgentCallbacks::on_tool_result` (`ToolOutcome{name, ok, result}`)
+  et la CLI imprime un récapitulatif `[execution: N outil(s) reussi(s), M en
+  echec]`. Un échec de protocole est signalé comme tel (`AgentError`), jamais
+  masqué par une réponse de succès.
+- `write_file` — preuve d'état final (Phase R0) : le contenu est écrit dans le
+  fichier temporaire, RELU et comparé byte à byte avant le `rename()`. Le succès
+  n'est rapporté qu'après cette vérification ; en cas d'écart, la cible reste
+  intacte et une erreur est levée.
+- Timeouts (Phase R0) : `CURLOPT_TIMEOUT` (total) est complété par
+  `CURLOPT_CONNECTTIMEOUT` (établissement de connexion, borné à `min(timeout,
+  10 s)`). Un timeout (`CURLE_OPERATION_TIMEDOUT`) produit un message distinct
+  (« HTTP POST timed out after Ns »), séparé des autres échecs curl.
 - Historique de conversation : borné aux 20 derniers messages pour éviter
   de dépasser la fenêtre de contexte du modèle local. Troncature simple
   (drop des plus anciens), pas de résumé.

@@ -302,6 +302,27 @@ TEST(workspace, sortie_par_lien_symbolique_rejetee)
     CHECK(!std::filesystem::exists(outside.path() / "ecrit.txt"));
 }
 
+TEST(workspace, recherche_et_liste_excluent_lien_vers_fichier_exterieur)
+{
+    tests::TempDir workspace("symlink_search_in");
+    tests::TempDir outside("symlink_search_out");
+    write_text(outside.path() / "secret.txt", "marqueur_exterieur_unique\n");
+    write_text(workspace.path() / "normal.txt", "marqueur_interieur_unique\n");
+
+    std::error_code error;
+    std::filesystem::create_symlink(outside.path() / "secret.txt", workspace.path() / "lien.txt", error);
+    if (error) {
+        std::cout << "    (SKIP: creation de lien symbolique impossible: " << error.message() << ")\n";
+        return;
+    }
+
+    auto registry = make_registry(workspace.path());
+    CHECK(call(registry, "search_files", R"({"query":"marqueur_exterieur_unique"})").empty());
+    CHECK(call(registry, "search_files", R"({"query":"marqueur_interieur_unique"})").find("normal.txt") != std::string::npos);
+    CHECK(call(registry, "list_files", "{}").find("lien.txt") == std::string::npos);
+    CHECK_THROWS_MSG(call(registry, "read_file", R"({"path":"../../etc/passwd"})"), "must not contain");
+}
+
 TEST(workspace, arguments_manquants_ou_mal_typoes)
 {
     tests::TempDir workspace("args");

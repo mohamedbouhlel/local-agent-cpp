@@ -95,9 +95,12 @@ LLM qui décide de les appeler pendant qu'il compose sa réponse.
 
 Les quatre outils sont enregistrés au démarrage (`register_workspace_tools()`
 dans `src/workspace_tools.cpp`) et exposés au modèle via le champ `tools` du
-payload. **Tous sont strictement sandboxés dans `workspace/`** : les chemins
-absolus, les `..` et toute tentative de sortie du dossier sont rejetés, donc
-aucun accès en dehors de ce dossier n'est possible.
+payload. Les chemins absolus, les composants `..` et les liens symboliques
+sortants constatés lors de la validation sont rejetés. Cette validation et
+les accès ultérieurs sont distincts : une modification concurrente des
+chemins ou des liens symboliques peut contourner cette vérification. Ne pas
+utiliser ce mécanisme comme frontière de sécurité face à un processus pouvant
+modifier le workspace simultanément.
 
 Le dossier `workspace/` est résolu relativement au répertoire de lancement
 (`std::filesystem::absolute("workspace")`) et créé automatiquement s'il
@@ -177,10 +180,9 @@ suffit de les déposer dans ce dossier.
   corromprait le fichier) avec l'invitation à écrire en plusieurs fois —
   `content is <N> characters, exceeding the maximum write size of 200000;
   write the file in smaller parts instead`.
-- **Sandbox** : comme les autres outils, `write_file` reste **strictement
-  sandboxé dans `workspace/`** — chemin validé par le sandbox avant tout
-  accès disque, chemins absolus et `..` rejetés, aucune écriture possible en
-  dehors du dossier.
+- **Sandbox** : `write_file` valide le chemin et rejette les chemins absolus
+  et `..`. Comme expliqué ci-dessus, cette validation ne protège pas contre
+  une modification concurrente des chemins pendant l'écriture.
 - **Écriture atomique et hard links** : l'écriture passe par un fichier
   temporaire du même répertoire puis un `rename()`. Conséquence assumée : si
   le fichier écrasé avait des hard links, le lien est rompu — le chemin écrit

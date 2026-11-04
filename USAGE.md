@@ -108,8 +108,11 @@ relativement à des descripteurs de répertoire et ne suit aucun lien
 symbolique. `read_file` ouvre aussi les composants du chemin résolu sans
 suivre de liens et lit depuis le même descripteur. `list_files` parcourt
 également les répertoires par descripteurs et exclut les liens symboliques.
-Les déplacements concurrents de répertoires et `write_file` ne sont pas
-couverts par ces corrections ; la mise en garde ci-dessus reste applicable.
+`write_file` utilise aussi des descripteurs de répertoire et une publication
+sans écrasement si `overwrite` est faux. Un processus pouvant modifier le
+workspace peut toutefois déplacer un répertoire ouvert ou remplacer un
+fichier temporaire avant publication ; la mise en garde ci-dessus reste
+applicable.
 
 Le dossier `workspace/` est résolu relativement au répertoire de lancement
 (`std::filesystem::absolute("workspace")`) et créé automatiquement s'il
@@ -190,10 +193,12 @@ suffit de les déposer dans ce dossier.
   `content is <N> characters, exceeding the maximum write size of 200000;
   write the file in smaller parts instead`.
 - **Sandbox** : `write_file` valide le chemin et rejette les chemins absolus
-  et `..`. Comme expliqué ci-dessus, cette validation ne protège pas contre
-  une modification concurrente des chemins pendant l'écriture.
+  et `..`. Les parents sont ouverts sans suivre de lien. Les déplacements
+  concurrents de répertoires et substitutions du temporaire restent une
+  limite de sécurité.
 - **Écriture atomique et hard links** : l'écriture passe par un fichier
-  temporaire du même répertoire puis un `rename()`. Conséquence assumée : si
+  temporaire du même répertoire puis une publication par `linkat()` sans
+  écrasement ou `renameat()` avec écrasement. Conséquence assumée : si
   le fichier écrasé avait des hard links, le lien est rompu — le chemin écrit
   pointe vers le nouvel inode et les autres liens gardent l'ancien contenu.
 

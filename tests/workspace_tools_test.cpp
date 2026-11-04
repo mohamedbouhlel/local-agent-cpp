@@ -196,6 +196,27 @@ TEST(workspace, garde_fou_overwrite)
     CHECK_EQ(call(registry, "read_file", R"({"path":"a.txt"})"), std::string("v2"));
 }
 
+TEST(workspace, creation_concurrente_sans_overwrite_ne_remplace_pas)
+{
+    tests::TempDir workspace("concurrent_create");
+    auto registry = make_registry(workspace.path());
+    std::atomic<bool> start{false};
+    std::atomic<int> successes{0};
+    auto writer = [&](const char* args) {
+        while (!start.load()) std::this_thread::yield();
+        try { call(registry, "write_file", args); ++successes; }
+        catch (const std::exception&) {}
+    };
+    std::thread first(writer, R"({"path":"unique.txt","content":"un"})");
+    std::thread second(writer, R"({"path":"unique.txt","content":"deux"})");
+    start.store(true);
+    first.join();
+    second.join();
+    CHECK_EQ(successes.load(), 1);
+    const auto content = read_text(workspace.path() / "unique.txt");
+    CHECK(content == "un" || content == "deux");
+}
+
 TEST(workspace, ecriture_atomique_sans_residu)
 {
     tests::TempDir workspace("atomic");

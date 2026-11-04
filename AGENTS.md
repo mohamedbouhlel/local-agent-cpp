@@ -17,7 +17,7 @@ set -a; source .env; set +a
 ## Test
 Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
 `test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
-(`mock_http_server.*`). 110 cas / 382 assertions répartis en 6 groupes : `sse`,
+(`mock_http_server.*`). 111 cas / 384 assertions répartis en 6 groupes : `sse`,
 `workspace`, `http`, `agent`, `repl`, `mock`.
 Désactivée par défaut, elle ne pèse jamais sur l'exécutable de production ;
 activation explicite :
@@ -121,8 +121,8 @@ directement (voir Architecture) sans relister les .cpp.
   search_files et write_file. write_file écrit de façon autonome (aucune
   confirmation humaine), mais refuse d'écraser un fichier existant si
   overwrite n'est pas explicitement true. L'écriture est atomique : contenu
-  écrit dans un fichier temporaire du même répertoire puis substitué via
-  rename(). Compromis assumé : si la cible écrasée avait des hard links,
+  écrit dans un fichier temporaire du même répertoire puis publié via
+  linkat() sans écrasement ou renameat() avec écrasement. Compromis assumé : si la cible écrasée avait des hard links,
   rename() casse le lien — le chemin écrit pointe vers le nouvel inode, les
   autres liens conservent l'ancien contenu.
 - Erreurs réseau : si le serveur local est injoignable (curl échoue), 

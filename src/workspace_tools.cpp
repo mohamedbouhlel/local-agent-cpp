@@ -1,5 +1,6 @@
 #include "workspace_tools.hpp"
 #include "workspace_search.hpp"
+#include "workspace_write.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -8,17 +9,10 @@
 #include <unistd.h>
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cstddef>
-#include <cstdint>
 #include <filesystem>
-#include <fstream>
-#include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <system_error>
 #include <utility>
 #include <cerrno>
 
@@ -162,76 +156,11 @@ std::string search_files(const std::filesystem::path& root, const nlohmann::json
     return search_workspace(root, query);
 }
 
-std::filesystem::path temporary_path_for(const std::filesystem::path& target)
-{
-    static std::atomic<std::uint64_t> counter{0};
-    const auto ticks = static_cast<std::uint64_t>(
-        std::chrono::steady_clock::now().time_since_epoch().count());
-
-    return target.parent_path()
-        / (target.filename().string() + ".tmp." + std::to_string(ticks) + "."
-           + std::to_string(counter.fetch_add(1)));
-}
-
-// Relit le fichier temporaire et vérifie qu'il contient exactement les octets
-// attendus. Le succès d'une écriture n'est rapporté qu'après cette
-// vérification : le message de l'outil devient une preuve d'état final, non une
-// simple déclaration.
-void verify_written_file(const std::filesystem::path& path,
-                         const std::string& expected,
-                         const std::string& relative)
-{
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        throw std::runtime_error("post-write verification failed: cannot reopen " + relative);
-    }
-
-    std::string actual;
-    actual.resize(expected.size());
-    file.read(actual.data(), static_cast<std::streamsize>(actual.size()));
-    const auto bytes = static_cast<std::size_t>(file.gcount());
-
-    if (bytes != expected.size() || actual != expected) {
-        throw std::runtime_error("post-write verification failed: " + relative + " contains "
-                                 + std::to_string(bytes) + " of " + std::to_string(expected.size())
-                                 + " expected bytes");
-    }
-}
-
-class TemporaryFileGuard {
-public:
-    explicit TemporaryFileGuard(std::filesystem::path path)
-        : path_(std::move(path))
-    {
-    }
-
-    ~TemporaryFileGuard()
-    {
-        if (committed_) {
-            return;
-        }
-
-        std::error_code error;
-        std::filesystem::remove(path_, error);
-    }
-
-    TemporaryFileGuard(const TemporaryFileGuard&) = delete;
-    TemporaryFileGuard& operator=(const TemporaryFileGuard&) = delete;
-
-    void commit() noexcept { committed_ = true; }
-
-private:
-    std::filesystem::path path_;
-    bool committed_ = false;
-};
-
 std::string write_file(const std::filesystem::path& root, const nlohmann::json& args)
 {
     const auto path = sandbox_path(root, require_string_arg(args, "path"));
     const auto content = require_string_arg(args, "content");
     const auto overwrite = optional_bool_arg(args, "overwrite", false);
-    const auto relative = relative_to_workspace(root, path).generic_string();
-
     if (content.size() > max_write_chars) {
         throw std::runtime_error(
             "content is " + std::to_string(content.size())
@@ -239,76 +168,7 @@ std::string write_file(const std::filesystem::path& root, const nlohmann::json& 
             + std::to_string(max_write_chars)
             + "; write the file in smaller parts instead");
     }
-
-    if (std::filesystem::is_directory(path)) {
-        throw std::runtime_error("cannot write file: path is an existing directory: " + relative);
-    }
-
-    const bool exists = std::filesystem::exists(path);
-    if (exists && !overwrite) {
-        throw std::runtime_error(
-            "file already exists: " + relative + " (pass overwrite: true to replace it)");
-    }
-
-    std::optional<std::filesystem::perms> preserved_permissions;
-    if (exists) {
-        std::error_code status_error;
-        const auto status = std::filesystem::status(path, status_error);
-        if (status_error) {
-            throw std::runtime_error(
-                "failed to read existing file permissions: " + status_error.message());
-        }
-        preserved_permissions = status.permissions();
-    }
-
-    std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
-    if (error) {
-        throw std::runtime_error("failed to create parent directories: " + error.message());
-    }
-
-    const auto temporary_path = temporary_path_for(path);
-    TemporaryFileGuard cleanup(temporary_path);
-
-    {
-        std::ofstream file(temporary_path, std::ios::binary | std::ios::trunc);
-        if (!file) {
-            throw std::runtime_error("failed to open file for writing");
-        }
-
-        file.write(content.data(), static_cast<std::streamsize>(content.size()));
-        if (!file) {
-            throw std::runtime_error("failed to write file content");
-        }
-
-        file.close();
-        if (!file) {
-            throw std::runtime_error("failed to flush file content");
-        }
-    }
-
-    if (preserved_permissions) {
-        std::filesystem::permissions(temporary_path, *preserved_permissions, error);
-        if (error) {
-            throw std::runtime_error(
-                "failed to apply existing file permissions to temporary file: " + error.message());
-        }
-    }
-
-    // Preuve d'état final avant publication : on relit le fichier temporaire et
-    // on le compare au contenu attendu. En cas d'écart, l'exception laisse la
-    // cible intacte (le garde supprime le fichier temporaire).
-    verify_written_file(temporary_path, content, relative);
-
-    std::filesystem::rename(temporary_path, path, error);
-    if (error) {
-        throw std::runtime_error("failed to replace target file: " + error.message());
-    }
-
-    cleanup.commit();
-
-    return "wrote " + std::to_string(content.size()) + " bytes to " + relative
-        + (exists ? " (overwrote existing file)" : " (created new file)");
+    return write_workspace(root, path.lexically_relative(root), content, overwrite);
 }
 
 nlohmann::json object_schema(nlohmann::json properties, nlohmann::json required = nlohmann::json::array())

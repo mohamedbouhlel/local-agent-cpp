@@ -346,6 +346,22 @@ TEST(workspace, recherche_et_liste_excluent_lien_vers_fichier_exterieur)
     CHECK_THROWS_MSG(call(registry, "read_file", R"({"path":"../../etc/passwd"})"), "must not contain");
 }
 
+TEST(workspace, lien_physique_exterieur_limite_documentee)
+{
+    tests::TempDir workspace("hardlink_in");
+    tests::TempDir outside("hardlink_out");
+    write_text(outside.path() / "secret.txt", "hardlink_marker_unique\n");
+    std::error_code error;
+    std::filesystem::create_hard_link(outside.path() / "secret.txt", workspace.path() / "shared.txt", error);
+    if (error) {
+        std::cout << "    (SKIP: creation de lien physique impossible: " << error.message() << ")\n";
+        return;
+    }
+    auto registry = make_registry(workspace.path());
+    CHECK_EQ(call(registry, "read_file", R"({"path":"shared.txt"})"), std::string("hardlink_marker_unique\n"));
+    CHECK(call(registry, "search_files", R"({"query":"hardlink_marker_unique"})").find("hardlink_marker_unique") != std::string::npos);
+}
+
 TEST(workspace, recherche_ignore_lien_remplace_en_concurrence)
 {
     tests::TempDir workspace("race_search_in");

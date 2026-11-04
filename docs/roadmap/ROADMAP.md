@@ -27,8 +27,8 @@
 | `write_file` : garde-fou `overwrite`, taille max, écriture atomique, permissions préservées | implémenté | `87eee25`, `116f61f` |
 | `agent_core` (lib) + `agent` (exe fin) | implémenté | `CMakeLists.txt`, `47ccea9` |
 | Docs `README.md`, `USAGE.md`, `AGENTS.md`, `CLAUDE.md` | implémenté | HEAD |
-| Suite de tests versionnée (micro-harnais maison + mock HTTP/SSE) | **présente** (P1.1/P2) | `tests/` (11 fichiers) ; `tests/CMakeLists.txt` ; `AGENTS.md` §Test |
-| Exécution de la suite : 5 groupes CTest, **75 cas / 298 assertions** (référence courante, R0) | **présente**, 0 échec | `-DAGENT_BUILD_TESTS=ON` + `ctest` |
+| Suite de tests versionnée (micro-harnais maison + mock HTTP/SSE) | **réalisée** (P1.1/P2) | `tests/` (11 fichiers) ; `tests/CMakeLists.txt` ; `AGENTS.md` §Test |
+| Exécution de la suite : 6 groupes CTest, **107 cas / 376 assertions** après ajout du test de lien sortant | **vérifiée : 0 échec** | `-DAGENT_BUILD_TESTS=ON` + `agent_tests` |
 | CI (intégration continue) | **absente** | `git ls-files` (aucun workflow) |
 
 **Correction (état actuel, P1.1/P2/R0).** La suite de tests est désormais
@@ -40,7 +40,7 @@ l'écriture atomique.
 **Compteurs — ne pas confondre les états.** Le total a évolué : **66 cas /
 264 assertions** au relevé **P3.3** (avant R0), porté à **75 cas / 298
 assertions** par **R0** (qui ajoute 9 cas). Le chiffre **66/264** ne vaut donc
-que pour l'état **P3.3** ; la référence **courante** est **75/298**.
+que pour l'état **P3.3** ; la référence R0 **75/298** est historique ; après `31f3e2a`, `AGENTS.md` documente **106/372 sur 6 groupes**.
 
 **État historique (audit à `4f33b62`).** Aucune suite de tests n'était alors
 versionnée et les validations reposaient sur des harnais **hors dépôt**,
@@ -62,11 +62,10 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
    `SseParser::flush()` restitue désormais la dernière trame non terminée, et
    l'agent exige le marqueur `[DONE]` pour accepter un flux comme complet
    (`AgentError` sinon).
-3. **Chemins SSE non exercés** : séparateur CRLF et concaténation de
-   plusieurs lignes `data:` sont implémentés (`src/sse_parser.cpp`) mais
-   aucun test ne les couvre.
-4. **`finish_reason` ignoré** : `choices[0].finish_reason` n'est jamais lu ;
-   le seul signal d'arrêt exploité est `"[DONE]"` + fin de réponse HTTP.
+3. **Chemins SSE exercés** : séparateur CRLF et concaténation de lignes
+   `data:` sont couverts dans `tests/sse_parser_test.cpp`.
+4. **Complétude du flux** : `finish_reason == "length"` est refusé et
+   le marqueur `"[DONE]"` est requis (`src/agent.cpp`).
 5. **Commentaire obsolète** : `src/agent.cpp:147` mentionne
    `extract_assistant_message()`, fonction supprimée par `a462373`.
 6. **`list_files` sans plafond** de nombre de résultats (à comparer aux 50 de
@@ -97,9 +96,7 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
     espace en fin de ligne.
 15. **Aucun outillage de style** : `AGENTS.md` impose un style C++ mais il
     n'existe ni `.clang-format` ni licence.
-16. **La valeur du refactor P5 n'est pas encore réalisée** : `agent_core` a
-    été extrait (justification inscrite en `47ccea9`/`8f015bf` : faciliter
-    tests/harnais) mais aucun test n'existe. `[FAIT + DÉDUCTION]`.
+16. **Le refactor `agent_core` est désormais exercé par la suite de tests** : les tests agent et REPL sont présents dans `tests/`. L'affirmation « aucun test n'existe » est obsolète depuis `31f3e2a`.
 17. **`.env` local** contient un `LLM_API_KEY` non vide (valeur non
     inspectée) : un serveur réel est configuré localement, sans qu'aucun
     serveur/modèle ne soit documenté dans le dépôt.
@@ -115,9 +112,7 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
   (4) *qualité de l'interaction* (streaming, feedback). `[DÉDUCTION]` depuis
   la séquence P1 → P2 → P4 → P6.
 - **D2** — Le refactor du build (`47ccea9`) a été fait **en préparation de
-  tests** : la justification est explicitement écrite dans le commit et dans
-  `AGENTS.md`. L'étape suivante logique (une suite de tests) n'a pas été
-  engagée. `[DÉDUCTION]`
+  tests** ; une suite versionnée utilise désormais `agent_core`.
 - **D3** — La documentation est traitée comme un livrable de première classe :
   presque chaque itération a son commit `docs`. Un prochain cycle serait
   incomplet sans mise à jour de `AGENTS.md`/`USAGE.md`. `[DÉDUCTION]`
@@ -140,7 +135,7 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
 
 ### Vague 1 — Rendre l'existant vérifiable (dépend de D2, D3, D4)
 
-- **P1 (PROPOSITION)** — Créer une cible CMake de tests liant `agent_core`,
+- **P1 (RÉALISÉ)** — Cible CMake de tests liant `agent_core`,
   sans framework externe d'abord (`assert` + un `main` par famille), ou avec
   Catch2/GoogleTest **si et seulement si** le mainteneur l'approuve
   (contrainte `AGENTS.md`).
@@ -156,9 +151,9 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
      assistant.
   5. `sandbox_path` / `write_file` : `..`, absolu, répertoire cible, refus
      d'écrasement, atomicité, préservation des permissions.
-- **P2 (PROPOSITION)** — Versionner un **mock serveur SSE** minimal (script
-  unique, sans dépendance) sous un répertoire dédié, pour rendre la
-  validation de bout en bout reproductible. Résout Q1/Q3.
+- **P2 (RÉALISÉ)** — Mock serveur HTTP/SSE versionné dans `tests/`,
+  sans dépendance externe, pour rendre la validation de bout en bout
+  reproductible. Résout Q1/Q3.
 
 ### Vague 2 — Boucher les trous de robustesse (indépendants entre eux)
 
@@ -223,7 +218,7 @@ streaming des résultats d'outils. `[DÉDUCTION d'absence — cf. D5]`
 ## F. Chemin critique recommandé (proposition)
 
 ```
-P1 + P2  (tests + mock versionné)      ← débloque la vérifiabilité
+P1 + P2  (tests + mock versionné)      — réalisés
    ↓
 P4..P8   (dettes de robustesse, indépendantes ; P3 traité)
    ↓

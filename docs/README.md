@@ -11,6 +11,8 @@ Documents **durables**, destinés à être tenus à jour.
 | Document | Contenu |
 | --- | --- |
 | [`context/PROJECT_CONTEXT.md`](context/PROJECT_CONTEXT.md) | état réel du code à HEAD : architecture, config, outils, limites, état de validation |
+| [`reports/REVUE_CLOTURE_POST_31F3E2A.md`](reports/REVUE_CLOTURE_POST_31F3E2A.md) | réconciliation documentaire après `31f3e2a` et vérification de reprise |
+| [`reports/revue-proposition-repl-multiline-2026-09-23.md`](reports/revue-proposition-repl-multiline-2026-09-23.md) | archive de revue de la proposition multiligne, antérieure à son implémentation |
 | [`history/PROJECT_HISTORY.md`](history/PROJECT_HISTORY.md) | reconstitution chronologique du projet depuis l'historique Git, décisions et révisions |
 | [`roadmap/ROADMAP.md`](roadmap/ROADMAP.md) | trajectoire et suites possibles, séparant faits, déductions et propositions |
 | [`questions/OPEN_QUESTIONS.md`](questions/OPEN_QUESTIONS.md) | informations manquantes, contradictions et points non vérifiables |

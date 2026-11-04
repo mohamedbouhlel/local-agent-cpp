@@ -16,9 +16,9 @@ pendant les itérations avaient été créés dans des répertoires temporaires 
 supprimés.
 `[CORRECTION — état actuel, vérifié]` La suite est **versionnée** (`tests/`,
 11 fichiers) et **exécutable localement** (`-DAGENT_BUILD_TESTS=ON` puis
-`ctest`) : **5** groupes CTest, **75 cas / 298 assertions** (référence courante,
-R0 ; le relevé **P3.3** valait **66 cas / 264 assertions**, avant les 9 cas
-ajoutés par R0), **0 échec**. La citation « `AGENTS.md:18` : Pas de suite de
+`ctest`) : **6** groupes CTest, **107 cas / 376 assertions** après ajout du
+test de lien sortant (106/372 à `31f3e2a`, 75/298 à R0), **0 échec** lors
+de la dernière exécution rapportée. La citation « `AGENTS.md:18` : Pas de suite de
 tests » est **périmée** : la section `## Test` décrit désormais la suite et son
 activation.
 **Reste ouvert (distinct)** : **aucune CI** (intégration continue) n'est
@@ -27,8 +27,7 @@ versionnée — non traité par cette réconciliation.
 **P2** (mock SSE versionné) sont **réalisés**.
 
 ### Q2. Le refactor `agent_core` est-il destiné aux tests, ou à autre chose ?
-`[FAIT + DÉDUCTION]` `47ccea9` et `8f015bf` justifient la bibliothèque par
-« compiler un test ou un harnais » ; aucun test n'a suivi.
+`[CORRECTION — état post-31f3e2a]` `agent_core` est désormais exercé par les tests versionnés, notamment les tests agent et REPL. La question initiale sur l'absence de tests est devenue obsolète.
 **Pourquoi ça compte** : soit l'étape suivante est bien les tests (P1), soit
 la bibliothèque visait un autre consommateur (embarquement, autre binaire)
 non documenté.
@@ -110,12 +109,8 @@ cet écart.
 ## Bloc 4 — Choix implicites non documentés
 
 ### Q9. `finish_reason` non exploité : choix ou oubli ?
-`[FAIT]` `choices[0].finish_reason` n'est jamais lu ; l'arrêt repose sur
-`"[DONE]"` et la fin de réponse HTTP.
-**Pourquoi ça compte** : selon les serveurs, `[DONE]` peut manquer ou être
-retardé ; `finish_reason` pourrait être le signal robuste.
-**Ce qui trancherait** : décision écrite (exploiter `finish_reason` ou
-documenter qu'il est volontairement ignoré).
+`[RÉSOLU — Phase R0]` `finish_reason == "length"` est refusé et le marqueur
+`"[DONE]"` est requis ; voir `src/agent.cpp` et les tests agent associés.
 
 ### Q10. La durabilité (fsync) de `write_file` est-elle un compromis assumé ?
 `[FAIT]` `AGENTS.md`/`USAGE.md` documentent l'atomicité (rename) et le
@@ -188,13 +183,11 @@ publication, un backup, ou une collaboration.
 ## Bloc 6 — Points non vérifiés faute d'accès
 
 ### Q18. Comportement face à un vrai serveur LLM en streaming.
-`[NON VÉRIFIÉ]` Seuls des mock serveurs (hors dépôt) ont été utilisés dans
-l'historique. Aucun échange réel avec llama.cpp/Ollama/vLLM/etc. n'est
-attesté dans le dépôt, notamment sur : présence systématique de `[DONE]`,
-format exact des `tool_calls` en streaming, gestion des erreurs en cours de
-flux par le serveur.
-**Ce qui trancherait** : une validation documentée contre un serveur réel
-(et un test reproductible, cf. Q1).
+`[FAIT RAPPORTÉ]` Les rapports du 23 septembre 2026 décrivent un essai nominal
+via LiteLLM et un essai multi-étapes partiellement réussi. Ces essais ne
+prouvent pas la compatibilité générale des serveurs ni les cas d'erreur.
+**Reste à vérifier** : reproduction avec un serveur et modèle identifiés,
+notamment les flux interrompus et les erreurs d'outils.
 
 ### Q19. Les limites numériques sont-elles calibrées ?
 `[NON VÉRIFIÉ]` `max_read_chars = 50'000`, `max_write_chars = 200'000`,

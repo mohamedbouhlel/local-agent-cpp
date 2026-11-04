@@ -118,6 +118,12 @@ std::string write_workspace(const std::filesystem::path& root,
             throw std::runtime_error("failed to publish target file");
         }
     }
+    struct stat published {};
+    if (::fstatat(dir.get(), filename.c_str(), &published, AT_SYMLINK_NOFOLLOW) != 0
+        || !S_ISREG(published.st_mode)
+        || published.st_dev != written_stat.st_dev || published.st_ino != written_stat.st_ino) {
+        throw std::runtime_error("published file differs from verified temporary file");
+    }
     return "wrote " + std::to_string(content.size()) + " bytes to " + display
         + (exists ? " (overwrote existing file)" : " (created new file)");
 }

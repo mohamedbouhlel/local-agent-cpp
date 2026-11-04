@@ -117,7 +117,10 @@ applicable.
 Un essai concurrent a confirmé qu'un lien symbolique peut être publié à la
 place du fichier attendu par `write_file` lorsque le nom temporaire est
 remplacé avant publication. La relecture du descripteur temporaire ne garantit
-donc pas que le même fichier sera publié.
+donc pas que le même fichier sera publié. Après publication, l'outil compare
+l'identité du fichier publié à celle du temporaire vérifié et signale une
+erreur si elles diffèrent. Cette détection reste sujette à une course et, en
+cas d'erreur, la cible peut déjà avoir été modifiée.
 
 Un lien physique placé dans le workspace vers un fichier accessible hors de
 celui-ci est un fichier régulier pour ces outils : `read_file` et

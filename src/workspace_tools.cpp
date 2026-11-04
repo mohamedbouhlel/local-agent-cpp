@@ -3,6 +3,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -16,6 +20,7 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <cerrno>
 
 namespace {
 
@@ -94,20 +99,17 @@ bool optional_bool_arg(const nlohmann::json& args, const char* name, bool defaul
     return args.at(name).get<bool>();
 }
 
-bool appears_binary(const std::filesystem::path& path)
-{
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        return true;
-    }
-
-    std::string buffer;
-    buffer.resize(binary_probe_bytes);
-    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    buffer.resize(static_cast<std::size_t>(file.gcount()));
-
-    return std::find(buffer.begin(), buffer.end(), '\0') != buffer.end();
-}
+class ReadDescriptor {
+public:
+    explicit ReadDescriptor(int fd) : fd_(fd) {}
+    ~ReadDescriptor() { if (fd_ >= 0) ::close(fd_); }
+    ReadDescriptor(const ReadDescriptor&) = delete;
+    ReadDescriptor& operator=(const ReadDescriptor&) = delete;
+    int get() const { return fd_; }
+    void replace(int fd) { if (fd_ >= 0) ::close(fd_); fd_ = fd; }
+private:
+    int fd_;
+};
 
 std::string list_files(const std::filesystem::path& root)
 {
@@ -130,27 +132,40 @@ std::string list_files(const std::filesystem::path& root)
 std::string read_file(const std::filesystem::path& root, const nlohmann::json& args)
 {
     const auto path = sandbox_path(root, require_string_arg(args, "path"));
-    if (!std::filesystem::exists(path)) {
-        throw std::runtime_error("file does not exist");
+    const auto relative = path.lexically_relative(root);
+    ReadDescriptor file(::open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+    if (file.get() < 0) throw std::runtime_error("failed to open workspace directory");
+    for (auto part = relative.begin(); part != relative.end(); ++part) {
+        auto next = part;
+        ++next;
+        const int flags = O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
+            | (next != relative.end() ? O_DIRECTORY : 0);
+        const int child = ::openat(file.get(), part->c_str(), flags);
+        if (child < 0) {
+            if (errno == ENOENT) throw std::runtime_error("file does not exist");
+            if (errno == ELOOP || errno == ENOTDIR) throw std::runtime_error("workspace path escapes sandbox or is not a directory");
+            throw std::runtime_error("failed to open file for reading");
+        }
+        file.replace(child);
     }
-    if (!std::filesystem::is_regular_file(path)) {
+    struct stat info {};
+    if (::fstat(file.get(), &info) != 0 || !S_ISREG(info.st_mode)) {
         throw std::runtime_error("path is not a regular file");
     }
-    if (appears_binary(path)) {
-        throw std::runtime_error("cannot read binary file: " + relative_to_workspace(root, path).generic_string());
+    std::string content(max_read_chars + 1, '\0');
+    std::size_t bytes_read = 0;
+    while (bytes_read < content.size()) {
+        const auto count = ::read(file.get(), content.data() + bytes_read, content.size() - bytes_read);
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) throw std::runtime_error("failed to read file");
+        if (count == 0) break;
+        bytes_read += static_cast<std::size_t>(count);
     }
-
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        throw std::runtime_error("failed to open file for reading");
+    const auto probe_end = std::min(bytes_read, binary_probe_bytes);
+    if (std::find(content.begin(), content.begin() + probe_end, '\0') != content.begin() + probe_end) {
+        throw std::runtime_error("cannot read binary file: " + relative.generic_string());
     }
-
-    std::string content;
-    content.resize(max_read_chars + 1);
-    file.read(content.data(), static_cast<std::streamsize>(content.size()));
-    const auto bytes_read = static_cast<std::size_t>(file.gcount());
     content.resize(std::min(bytes_read, max_read_chars));
-
     if (bytes_read > max_read_chars) {
         content += "\n\n[truncated: file exceeds 50000 characters]\n";
     }

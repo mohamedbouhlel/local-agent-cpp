@@ -360,6 +360,36 @@ TEST(workspace, recherche_ignore_lien_remplace_en_concurrence)
     CHECK(!leaked);
 }
 
+TEST(workspace, lecture_rejette_fichier_remplace_par_lien_en_concurrence)
+{
+    tests::TempDir workspace("race_read_in");
+    tests::TempDir outside("race_read_out");
+    write_text(outside.path() / "secret.txt", "secret_exterieur_unique");
+    write_text(workspace.path() / "cible.txt", "interieur");
+    auto registry = make_registry(workspace.path());
+    std::atomic<bool> stop{false};
+    std::thread writer([&] {
+        while (!stop.load()) {
+            std::error_code error;
+            const auto temporary = workspace.path() / ".swap";
+            std::filesystem::create_symlink(outside.path() / "secret.txt", temporary, error);
+            if (!error) std::filesystem::rename(temporary, workspace.path() / "cible.txt", error);
+            const auto regular = workspace.path() / ".regular";
+            write_text(regular, "interieur");
+            std::filesystem::rename(regular, workspace.path() / "cible.txt", error);
+        }
+    });
+    bool leaked = false;
+    for (int i = 0; i < 2000 && !leaked; ++i) {
+        try {
+            leaked = call(registry, "read_file", R"({"path":"cible.txt"})") == "secret_exterieur_unique";
+        } catch (const std::exception&) {}
+    }
+    stop.store(true);
+    writer.join();
+    CHECK(!leaked);
+}
+
 TEST(workspace, arguments_manquants_ou_mal_typoes)
 {
     tests::TempDir workspace("args");
@@ -532,12 +562,8 @@ TEST(workspace, ecriture_dans_repertoire_non_inscriptible)
     CHECK_EQ(find_temp_residue(locked), std::string(""));
 }
 
-TEST(workspace, fichier_texte_illisible_signale_comme_binaire_DEFECT_DOCUMENTE)
+TEST(workspace, fichier_texte_illisible_signale_erreur_ouverture)
 {
-    // DEFECT DOCUMENTE (constat R10 de l'audit PHASE 1) : appears_binary()
-    // retourne true quand le fichier ne peut pas etre ouvert, donc un fichier
-    // TEXTE simplement illisible est signale "cannot read binary file".
-    // Ce test encode le comportement observe, pas le comportement souhaite.
     if (running_as_root()) {
         std::cout << "    (SKIP: execution en root, permissions non applicables)\n";
         return;
@@ -553,5 +579,5 @@ TEST(workspace, fichier_texte_illisible_signale_comme_binaire_DEFECT_DOCUMENTE)
                                  std::filesystem::perm_options::replace);
 
     CHECK_THROWS_MSG(call(registry, "read_file", R"({"path":"texte.txt"})"),
-                     "cannot read binary file: texte.txt");
+                     "failed to open file for reading");
 }

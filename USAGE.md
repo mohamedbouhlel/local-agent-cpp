@@ -105,9 +105,10 @@ modifier le workspace simultanément.
 Une fuite de `search_files` par remplacement concurrent d'un lien a été
 reproduite puis corrigée pour ce scénario : la recherche ouvre les entrées
 relativement à des descripteurs de répertoire et ne suit aucun lien
-symbolique. Les autres outils et les déplacements concurrents de répertoires
-ne sont pas couverts par cette correction ; la mise en garde ci-dessus reste
-applicable.
+symbolique. `read_file` ouvre aussi les composants du chemin résolu sans
+suivre de liens et lit depuis le même descripteur. Les déplacements
+concurrents de répertoires et les autres outils ne sont pas couverts par ces
+corrections ; la mise en garde ci-dessus reste applicable.
 
 Le dossier `workspace/` est résolu relativement au répertoire de lancement
 (`std::filesystem::absolute("workspace")`) et créé automatiquement s'il

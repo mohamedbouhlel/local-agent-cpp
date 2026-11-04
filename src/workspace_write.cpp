@@ -1,4 +1,5 @@
 #include "workspace_write.hpp"
+#include "workspace_write_internal.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -39,6 +40,18 @@ std::string exists_error(const std::string& relative)
     return "file already exists: " + relative + " (pass overwrite: true to replace it)";
 }
 } // namespace
+
+void workspace_write_internal::verify_published_file(int directory_fd, const std::string& name, int verified_fd)
+{
+    struct stat verified {};
+    struct stat published {};
+    if (::fstat(verified_fd, &verified) != 0
+        || ::fstatat(directory_fd, name.c_str(), &published, AT_SYMLINK_NOFOLLOW) != 0
+        || !S_ISREG(published.st_mode)
+        || published.st_dev != verified.st_dev || published.st_ino != verified.st_ino) {
+        throw std::runtime_error("published file differs from verified temporary file");
+    }
+}
 
 std::string write_workspace(const std::filesystem::path& root,
                             const std::filesystem::path& relative,
@@ -118,12 +131,7 @@ std::string write_workspace(const std::filesystem::path& root,
             throw std::runtime_error("failed to publish target file");
         }
     }
-    struct stat published {};
-    if (::fstatat(dir.get(), filename.c_str(), &published, AT_SYMLINK_NOFOLLOW) != 0
-        || !S_ISREG(published.st_mode)
-        || published.st_dev != written_stat.st_dev || published.st_ino != written_stat.st_ino) {
-        throw std::runtime_error("published file differs from verified temporary file");
-    }
+    workspace_write_internal::verify_published_file(dir.get(), filename, file.get());
     return "wrote " + std::to_string(content.size()) + " bytes to " + display
         + (exists ? " (overwrote existing file)" : " (created new file)");
 }

@@ -11,7 +11,9 @@
 #include "tool_registry.hpp"
 #include "workspace_tools.hpp"
 #include "workspace_write.hpp"
+#include "../src/workspace_write_internal.hpp"
 
+#include <fcntl.h>
 #include <unistd.h>
 
 #include <cstddef>
@@ -25,6 +27,17 @@
 #include <vector>
 
 namespace {
+
+class TestFd {
+public:
+    explicit TestFd(int fd) : fd_(fd) {}
+    ~TestFd() { if (fd_ >= 0) ::close(fd_); }
+    TestFd(const TestFd&) = delete;
+    TestFd& operator=(const TestFd&) = delete;
+    int get() const { return fd_; }
+private:
+    int fd_;
+};
 
 ToolRegistry make_registry(const std::filesystem::path& root)
 {
@@ -216,6 +229,22 @@ TEST(workspace, creation_concurrente_sans_overwrite_ne_remplace_pas)
     CHECK_EQ(successes.load(), 1);
     const auto content = read_text(workspace.path() / "unique.txt");
     CHECK(content == "un" || content == "deux");
+}
+
+TEST(workspace, verification_publication_detecte_substitution)
+{
+    tests::TempDir workspace("published_identity");
+    write_text(workspace.path() / "original", "original");
+    write_text(workspace.path() / "autre", "autre");
+    TestFd directory(::open(workspace.path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC));
+    if (directory.get() < 0) throw std::runtime_error("cannot open test directory");
+    TestFd original(::openat(directory.get(), "original", O_RDONLY | O_CLOEXEC));
+    if (original.get() < 0) throw std::runtime_error("cannot open test file");
+    CHECK_NO_THROW(workspace_write_internal::verify_published_file(directory.get(), "original", original.get()));
+    CHECK_THROWS_MSG(workspace_write_internal::verify_published_file(directory.get(), "autre", original.get()), "published file differs");
+    std::filesystem::create_symlink(workspace.path() / "original", workspace.path() / "lien");
+    CHECK_THROWS_MSG(workspace_write_internal::verify_published_file(directory.get(), "lien", original.get()), "published file differs");
+    CHECK_THROWS_MSG(workspace_write_internal::verify_published_file(directory.get(), "absent", original.get()), "published file differs");
 }
 
 TEST(workspace, ecriture_atomique_sans_residu)

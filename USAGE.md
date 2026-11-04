@@ -102,9 +102,12 @@ chemins ou des liens symboliques peut contourner cette vérification. Ne pas
 utiliser ce mécanisme comme frontière de sécurité face à un processus pouvant
 modifier le workspace simultanément.
 
-Une reproduction locale a confirmé que `search_files` peut renvoyer le
-contenu d'un fichier extérieur si un lien symbolique est remplacé pendant
-son parcours. Ce comportement n'est pas corrigé à ce jour.
+Une fuite de `search_files` par remplacement concurrent d'un lien a été
+reproduite puis corrigée pour ce scénario : la recherche ouvre les entrées
+relativement à des descripteurs de répertoire et ne suit aucun lien
+symbolique. Les autres outils et les déplacements concurrents de répertoires
+ne sont pas couverts par cette correction ; la mise en garde ci-dessus reste
+applicable.
 
 Le dossier `workspace/` est résolu relativement au répertoire de lancement
 (`std::filesystem::absolute("workspace")`) et créé automatiquement s'il

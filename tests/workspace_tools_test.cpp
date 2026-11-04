@@ -14,11 +14,13 @@
 #include <unistd.h>
 
 #include <cstddef>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -321,6 +323,41 @@ TEST(workspace, recherche_et_liste_excluent_lien_vers_fichier_exterieur)
     CHECK(call(registry, "search_files", R"({"query":"marqueur_interieur_unique"})").find("normal.txt") != std::string::npos);
     CHECK(call(registry, "list_files", "{}").find("lien.txt") == std::string::npos);
     CHECK_THROWS_MSG(call(registry, "read_file", R"({"path":"../../etc/passwd"})"), "must not contain");
+}
+
+TEST(workspace, recherche_ignore_lien_remplace_en_concurrence)
+{
+    tests::TempDir workspace("race_search_in");
+    tests::TempDir outside("race_search_out");
+    write_text(workspace.path() / "normal.txt", "interieur\n");
+    write_text(outside.path() / "secret.txt", "secret_concurrent_unique\n");
+    std::error_code error;
+    std::filesystem::create_symlink(workspace.path() / "normal.txt", workspace.path() / "lien", error);
+    if (error) throw std::runtime_error("test requires symbolic links: " + error.message());
+    auto registry = make_registry(workspace.path());
+    std::atomic<bool> stop{false};
+    std::thread writer([&] {
+        unsigned iteration = 0;
+        while (!stop.load()) {
+            std::error_code ec;
+            const auto temporary = workspace.path() / ".swap";
+            const auto target = (++iteration % 2) ? outside.path() / "secret.txt" : workspace.path() / "normal.txt";
+            std::filesystem::create_symlink(target, temporary, ec);
+            if (!ec) std::filesystem::rename(temporary, workspace.path() / "lien", ec);
+        }
+    });
+    bool leaked = false;
+    std::string failure;
+    try {
+        for (int i = 0; i < 2000 && !leaked; ++i) {
+            leaked = call(registry, "search_files", R"({"query":"secret_concurrent_unique"})")
+                         .find("secret_concurrent_unique") != std::string::npos;
+        }
+    } catch (const std::exception& exception) { failure = exception.what(); }
+    stop.store(true);
+    writer.join();
+    CHECK(failure.empty());
+    CHECK(!leaked);
 }
 
 TEST(workspace, arguments_manquants_ou_mal_typoes)

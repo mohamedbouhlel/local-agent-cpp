@@ -1,4 +1,5 @@
 #include "workspace_tools.hpp"
+#include "workspace_search.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -21,7 +22,6 @@ namespace {
 constexpr std::size_t max_read_chars = 50'000;
 constexpr std::size_t max_write_chars = 200'000;
 constexpr std::size_t binary_probe_bytes = 4096;
-constexpr std::size_t max_search_results = 50;
 
 std::filesystem::path canonical_workspace_root(const std::filesystem::path& workspace_root)
 {
@@ -165,48 +165,7 @@ std::string search_files(const std::filesystem::path& root, const nlohmann::json
         throw std::invalid_argument("query must not be empty");
     }
 
-    std::ostringstream output;
-    std::size_t results = 0;
-    bool truncated = false;
-
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
-        const auto relative = relative_to_workspace(root, entry.path());
-        if (is_hidden_path(relative) || !entry.is_regular_file() || appears_binary(entry.path())) {
-            continue;
-        }
-
-        std::ifstream file(entry.path());
-        if (!file) {
-            continue;
-        }
-
-        std::string line;
-        std::size_t line_number = 0;
-        while (std::getline(file, line)) {
-            ++line_number;
-            if (line.find(query) == std::string::npos) {
-                continue;
-            }
-
-            if (results >= max_search_results) {
-                truncated = true;
-                break;
-            }
-
-            output << relative.generic_string() << ':' << line_number << ':' << line << '\n';
-            ++results;
-        }
-
-        if (truncated) {
-            break;
-        }
-    }
-
-    if (truncated) {
-        output << "[truncated: reached 50 search results]\n";
-    }
-
-    return output.str();
+    return search_workspace(root, query);
 }
 
 std::filesystem::path temporary_path_for(const std::filesystem::path& target)

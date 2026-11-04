@@ -23,6 +23,7 @@ add_library(agent_core STATIC
   src/sse_parser.cpp
   src/tool_registry.cpp
   src/workspace_tools.cpp
+  src/workspace_search.cpp
 )
 target_include_directories(agent_core PUBLIC include)
 target_link_libraries(agent_core PUBLIC CURL::libcurl nlohmann_json::nlohmann_json)

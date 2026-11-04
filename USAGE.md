@@ -102,6 +102,10 @@ chemins ou des liens symboliques peut contourner cette vérification. Ne pas
 utiliser ce mécanisme comme frontière de sécurité face à un processus pouvant
 modifier le workspace simultanément.
 
+Une reproduction locale a confirmé que `search_files` peut renvoyer le
+contenu d'un fichier extérieur si un lien symbolique est remplacé pendant
+son parcours. Ce comportement n'est pas corrigé à ce jour.
+
 Le dossier `workspace/` est résolu relativement au répertoire de lancement
 (`std::filesystem::absolute("workspace")`) et créé automatiquement s'il
 n'existe pas. En lançant `./build/agent` depuis la racine du projet, il

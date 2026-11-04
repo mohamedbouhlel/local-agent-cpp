@@ -151,3 +151,30 @@ ligne « consommée » — déviation assumée et documentée.
 - Garder chaque fichier court et une seule responsabilité
 - Commits atomiques, un changement logique par commit, format Conventional
   Commits (feat, fix, refactor, chore, docs, build, test)
+
+## Gouvernance Git et revue
+- Toute modification destinée à `main` passe par une branche dédiée et une
+  pull request vers `main`, même pour la documentation.
+- Ne jamais committer ni pousser directement sur `main`. Ne pas fusionner sa
+  propre pull request sans autorisation explicite du mainteneur.
+- Avant toute modification, vérifier la branche et l'état Git ; préserver les
+  changements existants et ne pas les intégrer sans en vérifier le périmètre.
+- Avant d'ouvrir une pull request, vérifier le diff, les fichiers inclus et les
+  tests adaptés ; décrire les résultats, les limites et les risques connus.
+- Ne pas réécrire l'historique, forcer un push, supprimer une branche ou revenir
+  sur des modifications sans autorisation explicite.
+
+## Rigueur et transparence
+- Ne jamais inventer de faits, de résultats de tests, de validations, de
+  sources, de décisions ou de garanties. Vérifier les affirmations importantes
+  dans le code, les commandes ou les documents pertinents et citer les preuves.
+- Distinguer les faits observés, les résultats rapportés historiquement, les
+  hypothèses, les déductions et les éléments non vérifiés. Signaler clairement
+  les incertitudes, les échecs, les accès refusés et les tests non exécutés.
+- Ne pas présenter une mitigation partielle, un test réussi ou une absence de
+  reproduction comme une preuve de correction complète ou de sécurité totale.
+- Signaler immédiatement une erreur ou une régression constatée, son impact et
+  ce qui reste à faire ; ne pas la minimiser ni la masquer par une formulation.
+- Communiquer simplement et précisément, sans mise en scène, promesse non
+  tenue, répétition de plans non exécutés ou déclaration de travail terminé
+  lorsque des obligations restent ouvertes.

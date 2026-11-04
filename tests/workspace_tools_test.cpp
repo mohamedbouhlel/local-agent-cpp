@@ -10,6 +10,7 @@
 #include "test_support.hpp"
 #include "tool_registry.hpp"
 #include "workspace_tools.hpp"
+#include "workspace_write.hpp"
 
 #include <unistd.h>
 
@@ -294,6 +295,16 @@ TEST(workspace, chemin_avec_double_point)
                      "workspace path must not contain '..'");
     CHECK_THROWS_MSG(call(registry, "write_file", R"({"path":"sub/../../x.txt","content":"x"})"),
                      "workspace path must not contain '..'");
+}
+
+TEST(workspace, ecriture_directe_refuse_chemins_invalides)
+{
+    tests::TempDir workspace("direct_write_paths");
+    CHECK_THROWS_MSG(write_workspace(workspace.path(), "../outside.txt", "x", false), "must not contain");
+    CHECK_THROWS_MSG(write_workspace(workspace.path(), workspace.path() / "absolute.txt", "x", false), "invalid workspace path");
+    CHECK_THROWS_MSG(write_workspace(workspace.path(), std::filesystem::path(std::string("a\0b", 3)), "x", false), "invalid workspace path");
+    auto registry = make_registry(workspace.path());
+    CHECK_THROWS_MSG(call(registry, "read_file", R"({"path":"a\u0000b"})"), "must not contain NUL");
 }
 
 TEST(workspace, chemin_point_seul_sort_du_sandbox)

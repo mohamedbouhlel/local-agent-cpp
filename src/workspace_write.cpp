@@ -44,6 +44,13 @@ std::string write_workspace(const std::filesystem::path& root,
                             const std::filesystem::path& relative,
                             const std::string& content, bool overwrite)
 {
+    if (relative.empty() || relative.is_absolute() || relative.filename().empty()
+        || relative.filename() == "." || relative.native().find('\0') != std::string::npos) {
+        throw std::invalid_argument("invalid workspace path");
+    }
+    for (const auto& component : relative) {
+        if (component == "..") throw std::invalid_argument("workspace path must not contain '..'");
+    }
     const auto display = relative.generic_string();
     const auto filename = relative.filename().string();
     Fd dir(::open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));

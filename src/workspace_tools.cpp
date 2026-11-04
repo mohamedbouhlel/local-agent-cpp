@@ -41,6 +41,9 @@ std::filesystem::path sandbox_path(const std::filesystem::path& root, const std:
     if (llm_path.empty()) {
         throw std::invalid_argument("workspace path must not be empty");
     }
+    if (llm_path.find('\0') != std::string::npos) {
+        throw std::invalid_argument("workspace path must not contain NUL");
+    }
 
     const std::filesystem::path relative_path(llm_path);
     if (relative_path.is_absolute()) {

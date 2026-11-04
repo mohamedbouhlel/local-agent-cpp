@@ -114,6 +114,11 @@ workspace peut toutefois déplacer un répertoire ouvert ou remplacer un
 fichier temporaire avant publication ; la mise en garde ci-dessus reste
 applicable.
 
+Un essai concurrent a confirmé qu'un lien symbolique peut être publié à la
+place du fichier attendu par `write_file` lorsque le nom temporaire est
+remplacé avant publication. La relecture du descripteur temporaire ne garantit
+donc pas que le même fichier sera publié.
+
 Un lien physique placé dans le workspace vers un fichier accessible hors de
 celui-ci est un fichier régulier pour ces outils : `read_file` et
 `search_files` peuvent en lire le contenu. Le filtrage des liens symboliques

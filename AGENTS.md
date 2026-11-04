@@ -94,10 +94,11 @@ directement (voir Architecture) sans relister les .cpp.
   et la CLI imprime un récapitulatif `[execution: N outil(s) reussi(s), M en
   echec]`. Un échec de protocole est signalé comme tel (`AgentError`), jamais
   masqué par une réponse de succès.
-- `write_file` — preuve d'état final (Phase R0) : le contenu est écrit dans le
-  fichier temporaire, RELU et comparé byte à byte avant le `rename()`. Le succès
-  n'est rapporté qu'après cette vérification ; en cas d'écart, la cible reste
-  intacte et une erreur est levée.
+- `write_file` : le fichier temporaire ouvert est relu et comparé avant la
+  publication. Cette vérification ne prouve pas l'état publié en présence
+  d'un processus concurrent : une substitution du nom temporaire a été
+  reproduite. Voir USAGE.md ; ne pas traiter le workspace comme frontière
+  de sécurité contre un processus pouvant le modifier.
 - Timeouts (Phase R0) : `CURLOPT_TIMEOUT` (total) est complété par
   `CURLOPT_CONNECTTIMEOUT` (établissement de connexion, borné à `min(timeout,
   10 s)`). Un timeout (`CURLE_OPERATION_TIMEDOUT`) produit un message distinct

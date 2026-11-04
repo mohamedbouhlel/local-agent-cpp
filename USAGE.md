@@ -118,6 +118,8 @@ Un lien physique placé dans le workspace vers un fichier accessible hors de
 celui-ci est un fichier régulier pour ces outils : `read_file` et
 `search_files` peuvent en lire le contenu. Le filtrage des liens symboliques
 ne constitue donc pas une isolation contre les liens physiques.
+Un essai local a aussi montre qu'un montage du workspace sous `bwrap` ne
+supprime pas cette limite ; voir `docs/reports/2026-11-04-isolation-systeme.md`.
 
 Le dossier `workspace/` est résolu relativement au répertoire de lancement
 (`std::filesystem::absolute("workspace")`) et créé automatiquement s'il

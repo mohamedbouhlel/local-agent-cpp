@@ -17,7 +17,7 @@ set -a; source .env; set +a
 ## Test
 Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
 `test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
-(`mock_http_server.*`). 109 cas / 379 assertions répartis en 6 groupes : `sse`,
+(`mock_http_server.*`). 110 cas / 382 assertions répartis en 6 groupes : `sse`,
 `workspace`, `http`, `agent`, `repl`, `mock`.
 Désactivée par défaut, elle ne pèse jamais sur l'exécutable de production ;
 activation explicite :

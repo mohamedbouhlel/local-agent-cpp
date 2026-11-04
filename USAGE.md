@@ -106,9 +106,10 @@ Une fuite de `search_files` par remplacement concurrent d'un lien a été
 reproduite puis corrigée pour ce scénario : la recherche ouvre les entrées
 relativement à des descripteurs de répertoire et ne suit aucun lien
 symbolique. `read_file` ouvre aussi les composants du chemin résolu sans
-suivre de liens et lit depuis le même descripteur. Les déplacements
-concurrents de répertoires et les autres outils ne sont pas couverts par ces
-corrections ; la mise en garde ci-dessus reste applicable.
+suivre de liens et lit depuis le même descripteur. `list_files` parcourt
+également les répertoires par descripteurs et exclut les liens symboliques.
+Les déplacements concurrents de répertoires et `write_file` ne sont pas
+couverts par ces corrections ; la mise en garde ci-dessus reste applicable.
 
 Le dossier `workspace/` est résolu relativement au répertoire de lancement
 (`std::filesystem::absolute("workspace")`) et créé automatiquement s'il
@@ -124,7 +125,7 @@ suffit de les déposer dans ce dossier.
 - **Quand** : quand le modèle a besoin de savoir quels fichiers existent
   avant de lire ou chercher.
 - **Contrainte** : aucun argument. Seuls les fichiers réguliers sont
-  listés (pas les répertoires). Pas de plafond de nombre de résultats codé
+  listés (pas les répertoires ni les liens symboliques). Pas de plafond de nombre de résultats codé
   pour `list_files` lui-même.
 
 ### read_file

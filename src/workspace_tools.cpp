@@ -36,14 +36,6 @@ std::filesystem::path canonical_workspace_root(const std::filesystem::path& work
     return root;
 }
 
-bool is_hidden_path(const std::filesystem::path& relative_path)
-{
-    return std::any_of(relative_path.begin(), relative_path.end(), [](const auto& part) {
-        const auto name = part.string();
-        return !name.empty() && name.front() == '.';
-    });
-}
-
 bool is_inside_workspace(const std::filesystem::path& root, const std::filesystem::path& candidate)
 {
     const auto [root_end, candidate_end] = std::mismatch(root.begin(), root.end(), candidate.begin(), candidate.end());
@@ -113,20 +105,7 @@ private:
 
 std::string list_files(const std::filesystem::path& root)
 {
-    std::ostringstream output;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
-        const auto relative = relative_to_workspace(root, entry.path());
-        if (is_hidden_path(relative)) {
-            if (entry.is_directory()) {
-                continue;
-            }
-            continue;
-        }
-        if (entry.is_regular_file()) {
-            output << relative.generic_string() << '\n';
-        }
-    }
-    return output.str();
+    return list_workspace(root);
 }
 
 std::string read_file(const std::filesystem::path& root, const nlohmann::json& args)

@@ -491,6 +491,26 @@ TEST(workspace, list_files_exclut_les_chemins_caches)
     CHECK(listing.find(".hidden") == std::string::npos);
 }
 
+TEST(workspace, list_files_ignore_liens_et_conserve_fichiers_illisibles)
+{
+    tests::TempDir workspace("list_links");
+    tests::TempDir outside("list_links_outside");
+    write_text(workspace.path() / "prive.txt", "contenu");
+    write_text(outside.path() / "exterieur.txt", "contenu");
+    std::error_code error;
+    std::filesystem::create_symlink(workspace.path() / "prive.txt", workspace.path() / "lien_interne", error);
+    if (error) throw std::runtime_error("test requires symbolic links: " + error.message());
+    std::filesystem::create_symlink(outside.path(), workspace.path() / "lien_externe", error);
+    if (error) throw std::runtime_error("test requires symbolic links: " + error.message());
+    const PermissionRestorer restorer(workspace.path() / "prive.txt");
+    std::filesystem::permissions(workspace.path() / "prive.txt", std::filesystem::perms::none);
+    auto registry = make_registry(workspace.path());
+    const auto listing = call(registry, "list_files", "{}");
+    CHECK(listing.find("prive.txt") != std::string::npos);
+    CHECK(listing.find("lien_interne") == std::string::npos);
+    CHECK(listing.find("lien_externe") == std::string::npos);
+}
+
 TEST(workspace, search_files_litteral_et_sensible_a_la_casse)
 {
     tests::TempDir workspace("search_case");

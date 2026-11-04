@@ -44,7 +44,7 @@ void match_line(State& state, const std::string& path, std::size_t number,
     ++state.count;
 }
 
-void walk(int dir, const std::string& prefix, const std::string& query, State& state)
+void walk(int dir, const std::string& prefix, const std::string* query, State& state)
 {
     const int copy = ::dup(dir);
     if (copy < 0) throw std::runtime_error("failed to duplicate workspace directory");
@@ -60,11 +60,18 @@ void walk(int dir, const std::string& prefix, const std::string& query, State& s
         const std::string name(entry->d_name);
         if (name.empty() || name.front() == '.') continue;
         const std::string path = prefix.empty() ? name : prefix + '/' + name;
+        if (!query) {
+            struct stat status {};
+            if (::fstatat(dir, name.c_str(), &status, AT_SYMLINK_NOFOLLOW) != 0) continue;
+            if (S_ISREG(status.st_mode)) { state.output << path << '\n'; continue; }
+            if (!S_ISDIR(status.st_mode)) continue;
+        }
         Fd child(::openat(dir, name.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
         if (child.get() < 0) continue;
         struct stat info {};
         if (::fstat(child.get(), &info) != 0) continue;
         if (S_ISDIR(info.st_mode)) { walk(child.get(), path, query, state); continue; }
+        if (!query) continue;
         if (!S_ISREG(info.st_mode)) continue;
 
         std::array<char, 4096> probe{};
@@ -80,10 +87,10 @@ void walk(int dir, const std::string& prefix, const std::string& query, State& s
         int c;
         while (!state.truncated && (c = ::fgetc(file.get())) != EOF) {
             if (c != '\n') { line.push_back(static_cast<char>(c)); continue; }
-            match_line(state, path, ++number, line, query);
+            match_line(state, path, ++number, line, *query);
             line.clear();
         }
-        if (!state.truncated && !line.empty()) match_line(state, path, number + 1, line, query);
+        if (!state.truncated && !line.empty()) match_line(state, path, number + 1, line, *query);
     }
 }
 } // namespace
@@ -93,7 +100,16 @@ std::string search_workspace(const std::filesystem::path& root, const std::strin
     Fd directory(::open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
     if (directory.get() < 0) throw std::runtime_error("failed to open workspace directory");
     State state;
-    walk(directory.get(), "", query, state);
+    walk(directory.get(), "", &query, state);
     if (state.truncated) state.output << "[truncated: reached 50 search results]\n";
+    return state.output.str();
+}
+
+std::string list_workspace(const std::filesystem::path& root)
+{
+    Fd directory(::open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+    if (directory.get() < 0) throw std::runtime_error("failed to open workspace directory");
+    State state;
+    walk(directory.get(), "", nullptr, state);
     return state.output.str();
 }

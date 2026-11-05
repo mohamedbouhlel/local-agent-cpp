@@ -4,7 +4,7 @@
 **Branche :** `feat/ui-1-event-instrumentation`
 **Base vérifiée :** `a986af4935ba3dea7d18339c42c3dc18651cf308` (`origin/main`, merge PR #16)
 **Cible de publication :** `main`
-**État :** code et documentation validés localement ; aucune fusion effectuée.
+**État :** commit créé et poussé ; PR brouillon ouverte ; aucune fusion effectuée.
 
 ## Objectif et précontrôle
 
@@ -80,4 +80,11 @@ Aucun autre fichier n'est inclus. Il n'y a pas de modification de CMake racine o
 
 Les tests valident les scénarios listés, pas une absence générale de défauts ou de fuite. Les événements sont synchrones et l'agent n'est pas thread-safe. La génération d'identifiants de session est process-local. L'avertissement CMP0135 préexiste à UI-1.
 
-**VERDICT : VALIDÉ pour la revue finale et les validations exécutées.** Le diff peut être commité et publié en PR brouillon. La PR ne doit pas être fusionnée sans autorisation distincte. UI-2 n'a pas commencé.
+## Publication
+
+- Commit d'implémentation et de revue : `fd4f6f8eee849001e0328dd9dc47bd0e60fb03c3` (`feat(ui): add typed agent event instrumentation`).
+- Push sans force de `feat/ui-1-event-instrumentation` vers `origin` : réussi.
+- PR brouillon créée vers `main` : [#17](https://github.com/mohamedbouhlel/local-agent-cpp/pull/17). La réponse de création indiquait `open`, `draft: true`, `merged: false`, base `main` au SHA `a986af4935ba3dea7d18339c42c3dc18651cf308` et head au commit ci-dessus.
+- Aucun merge effectué. UI-2 n'a pas commencé.
+
+**VERDICT : VALIDÉ pour la revue finale, les validations exécutées et la publication en PR brouillon.** La PR reste à examiner et ne doit pas être fusionnée sans autorisation distincte.

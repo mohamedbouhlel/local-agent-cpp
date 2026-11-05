@@ -19,11 +19,12 @@ permanente avec `main`.
 
 ## Spécifications
 
-Documents **normatifs** validés par le mainteneur (exigences approuvées).
+Documents normatifs validés et spécifications en cours de ratification ; le statut est indiqué dans chaque entrée.
 
 | Spécification | Contenu |
 | --- | --- |
 | [`specifications/repl-multiline-requirements.md`](specifications/repl-multiline-requirements.md) | **REPL multiline** — exigences `REPL-01` → `REPL-09` **approuvées, implémentation vérifiée au SHA daté de M4** (D-1 à D-8 et arbitrages A-1 à A-9) : déclenchement `:multi`, terminateur `:end`, conservation exacte, unicité de l'envoi, blocs vides, `exit`, EOF/Ctrl+D, retour à l'invite |
+| [`specifications/console-ui-architecture-requirements.md`](specifications/console-ui-architecture-requirements.md) | **SPEC-UI-001 v1.1** — architecture console et observabilité ; orientations ratifiées pour préparation, détails ouverts/propositions ; implémentation non autorisée |
 
 ## Rapports de phase
 
@@ -81,6 +82,7 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [`2026-11-05-m4-guides-spec-index-reconciliation.md`](reports/2026-11-05-m4-guides-spec-index-reconciliation.md) | M4 — guides, statut de spécification et index documentaire |
 
 | [`2026-11-05-m5-documentation-final-consistency.md`](reports/2026-11-05-m5-documentation-final-consistency.md) | M5 — contrôle des liens, statuts, HEAD post-PR #10, preuves et limites de clôture |
+| [`2026-11-05-ui-0c-specification-ratification.md`](reports/2026-11-05-ui-0c-specification-ratification.md) | UI-0C — SPEC-UI-001 et validation au merge de la PR #15 (7/7 groupes, 118 cas / 407 assertions) |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

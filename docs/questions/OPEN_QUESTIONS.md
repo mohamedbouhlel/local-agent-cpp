@@ -50,23 +50,21 @@ réconciliation
 
 ## Bloc 3 — Contradictions internes à la documentation
 
-### Q6. `AGENTS.md` contient deux puces partiellement contradictoires sur la troncature.
-`[FAIT]` La puce « Historique de conversation : … Troncature simple (drop des
-plus anciens), pas de résumé » (l. 69-71) est contredite par la puce suivante
-« la troncature raisonne en tours complets » (l. 72-81). La première n'a pas
-été réécrite lors de `bf85ca1`.
-**Pourquoi ça compte** : un lecteur qui s'arrête à la première puce décrit un
-comportement qui n'existe plus.
-**Ce qui trancherait** : réconcilier les deux puces ([`ROADMAP.md`](../roadmap/ROADMAP.md) P11).
+### Q6. Contradiction historique sur la troncature dans `AGENTS.md`.
+**[RÉSOLU DOCUMENTAIREMENT — M4, confirmé par lecture M5]**
+L'ancien texte annonçait une « troncature simple (drop des plus anciens) » ;
+`AGENTS.md` décrit désormais la troncature par **tours complets**, cohérente
+avec `src/agent.cpp::trim_history()`. L'ancienne contradiction reste un fait
+historique, pas une question encore ouverte. **Preuves :** `AGENTS.md`
+§« Architecture en vigueur », `src/agent.cpp`, PR #9.
 
-### Q7. La section s'appelle toujours « Décisions d'architecture (v1) ».
-`[FAIT]` Le titre n'a pas évolué alors que trois décisions v1 ont été révisées
-(streaming, tool-calling, troncature) et que d'autres capacités ont été
-ajoutées hors plan.
-**Pourquoi ça compte** : le mot « v1 » laisse croire à une base figée alors
-que la section mélange décisions initiales, révisions et invariants ajoutés.
-**Ce qui trancherait** : renommer/scinder la section (décisions initiales vs
-invariants courants) ([`ROADMAP.md`](../roadmap/ROADMAP.md) P11).
+### Q7. Titre historique « Décisions d'architecture (v1) ».
+**[RÉSOLU DOCUMENTAIREMENT — M4, confirmé par lecture M5]**
+Le titre courant est « Architecture en vigueur — invariants et révisions ».
+Les décisions v1 sont référencées comme **historiques** dans
+[PROJECT_HISTORY.md](../history/PROJECT_HISTORY.md). Aucun arbitrage
+produit nouveau n'est créé par cette correction. **Preuves :**
+`AGENTS.md`, PR #9.
 
 ### Q8. La prédiction v1 « sans réécriture complète » a-t-elle été tenue ?
 `[FAIT]` La décision v1 exigeait un `http_client` « conçu avec une interface

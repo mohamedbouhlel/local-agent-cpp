@@ -3,6 +3,7 @@
 #include <curl/curl.h>
 
 #include <algorithm>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <string>
@@ -49,27 +50,39 @@ struct CurlHeadersDeleter {
 using CurlHandle = std::unique_ptr<CURL, CurlHandleDeleter>;
 using CurlHeaders = std::unique_ptr<curl_slist, CurlHeadersDeleter>;
 
-size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata)
-{
-    auto* response = static_cast<std::string*>(userdata);
-    response->append(ptr, size * nmemb);
-    return size * nmemb;
-}
-
-struct StreamSink {
+struct WriteSink {
     std::string* body;
     const std::function<void(const std::string&)>* on_data;
+    std::exception_ptr callback_exception;
 };
 
-size_t streaming_write_callback(char* ptr, size_t size, size_t nmemb, void* userdata)
+size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept
 {
     const auto total = size * nmemb;
-    auto* sink = static_cast<StreamSink*>(userdata);
-    sink->body->append(ptr, total);
-    if (sink->on_data != nullptr && *sink->on_data) {
-        (*sink->on_data)(std::string(ptr, total));
+    auto* sink = static_cast<WriteSink*>(userdata);
+    try {
+        sink->body->append(ptr, total);
+        return total;
+    } catch (...) {
+        sink->callback_exception = std::current_exception();
+        return 0;
     }
-    return total;
+}
+
+size_t streaming_write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) noexcept
+{
+    const auto total = size * nmemb;
+    auto* sink = static_cast<WriteSink*>(userdata);
+    try {
+        sink->body->append(ptr, total);
+        if (sink->on_data != nullptr && *sink->on_data) {
+            (*sink->on_data)(std::string(ptr, total));
+        }
+        return total;
+    } catch (...) {
+        sink->callback_exception = std::current_exception();
+        return 0;
+    }
 }
 
 void ensure_curl_global()
@@ -88,6 +101,7 @@ std::string perform_request(const std::string& url,
                             long timeout_seconds,
                             curl_write_callback write_function,
                             void* write_data,
+                            std::exception_ptr& callback_exception,
                             const std::string& response_for_diagnostics)
 {
     ensure_curl_global();
@@ -124,6 +138,12 @@ std::string perform_request(const std::string& url,
     curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, error_buffer);
 
     const auto code = curl_easy_perform(curl.get());
+    // A C++ callback exception is restored only after libcurl has returned to
+    // C++ so it cannot unwind through libcurl's C stack or be hidden by its
+    // resulting CURLE_WRITE_ERROR.
+    if (callback_exception) {
+        std::rethrow_exception(callback_exception);
+    }
     if (code != CURLE_OK) {
         const std::string detail = error_buffer[0] != '\0' ? error_buffer : curl_easy_strerror(code);
         // Un timeout est distingué d'une coupure réseau : le message le dit
@@ -151,7 +171,8 @@ std::string HttpClient::post(const std::string& url,
                              long timeout_seconds) const
 {
     std::string response;
-    perform_request(url, headers, body, timeout_seconds, write_callback, &response, response);
+    WriteSink sink{&response, nullptr, {}};
+    perform_request(url, headers, body, timeout_seconds, write_callback, &sink, sink.callback_exception, response);
     return response;
 }
 
@@ -162,7 +183,14 @@ std::string HttpClient::post_streaming(const std::string& url,
                                        const std::function<void(const std::string&)>& on_data) const
 {
     std::string response;
-    StreamSink sink{&response, &on_data};
-    perform_request(url, headers, body, timeout_seconds, streaming_write_callback, &sink, response);
+    WriteSink sink{&response, &on_data, {}};
+    perform_request(url,
+                    headers,
+                    body,
+                    timeout_seconds,
+                    streaming_write_callback,
+                    &sink,
+                    sink.callback_exception,
+                    response);
     return response;
 }

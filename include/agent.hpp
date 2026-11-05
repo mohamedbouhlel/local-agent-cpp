@@ -1,12 +1,17 @@
 #pragma once
 
 #include "tool_registry.hpp"
+#include "ui/agent_event.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <functional>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 struct Message {
@@ -51,14 +56,58 @@ struct AgentCallbacks {
 class Agent {
 public:
     Agent(ToolRegistry& tools, AgentConfig config);
+    Agent(ToolRegistry& tools,
+          AgentConfig config,
+          std::shared_ptr<agent::ui::EventObserver> observer);
 
     std::string send(const std::string& input, const AgentCallbacks& callbacks = {});
 
 private:
     void append_message(Message message);
     void trim_history();
+    template <typename PayloadFactory>
+    void publish_event(PayloadFactory&& make_payload,
+                       agent::ui::TurnId turn_id,
+                       std::optional<agent::ui::RequestId> request_id = std::nullopt,
+                       std::optional<std::string_view> tool_call_id = std::nullopt) noexcept
+    {
+        if (!observer_enabled_ || !observer_) {
+            return;
+        }
+
+        try {
+            const auto now = std::chrono::steady_clock::now();
+            agent::ui::EventMetadata metadata;
+            metadata.session_id = session_id_;
+            metadata.turn_id = turn_id;
+            metadata.request_id = request_id;
+            if (tool_call_id) {
+                metadata.tool_call_id = agent::ui::ToolCallId{std::string(*tool_call_id)};
+            }
+            metadata.sequence = next_event_sequence_;
+            metadata.timestamp_utc = std::chrono::system_clock::now();
+            metadata.elapsed = now - session_started_at_;
+            agent::ui::AgentEvent event{std::move(metadata), make_payload()};
+            ++next_event_sequence_;
+            observer_->on_event(event);
+        } catch (...) {
+            observer_enabled_ = false;
+            try {
+                observer_->on_observer_failure();
+            } catch (...) {
+                // Observer diagnostics must not affect the agent operation.
+            }
+        }
+    }
 
     ToolRegistry& tools_;
     AgentConfig config_;
     std::vector<Message> history_;
+    std::shared_ptr<agent::ui::EventObserver> observer_;
+    bool observer_enabled_ = false;
+    agent::ui::SessionId session_id_;
+    std::chrono::steady_clock::time_point session_started_at_;
+    std::uint64_t next_turn_id_ = 1;
+    std::uint64_t next_request_id_ = 1;
+    std::uint64_t next_event_sequence_ = 1;
 };

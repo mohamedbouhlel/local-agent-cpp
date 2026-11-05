@@ -16,6 +16,7 @@ TEST(sandbox, denies_filesystem_access_outside_workspace)
     const auto workspace = root.path() / "workspace";
     const auto inside = workspace / "inside.txt";
     const auto outside = root.path() / "outside.txt";
+    const bool ssl_private_directory_exists = std::filesystem::is_directory("/etc/ssl/private");
     std::filesystem::create_directories(workspace);
     { std::ofstream file(inside); file << "inside"; }
     { std::ofstream file(outside); file << "outside"; }
@@ -51,6 +52,22 @@ TEST(sandbox, denies_filesystem_access_outside_workspace)
                                          O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
         if (allowed_write < 0) ::_exit(16);
         ::close(allowed_write);
+
+        const int denied_system_tree = ::open("/usr", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (denied_system_tree >= 0) {
+            ::close(denied_system_tree);
+            ::_exit(17);
+        }
+        if (errno != EACCES && errno != EPERM) ::_exit(18);
+
+        if (ssl_private_directory_exists) {
+            const int denied_private = ::open("/etc/ssl/private", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+            if (denied_private >= 0) {
+                ::close(denied_private);
+                ::_exit(19);
+            }
+            if (errno != EACCES && errno != EPERM) ::_exit(20);
+        }
         ::_exit(0);
     }
 

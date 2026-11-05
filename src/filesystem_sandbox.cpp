@@ -137,8 +137,9 @@ void apply_filesystem_sandbox(const std::filesystem::path& workspace_root)
 
     add_workspace_rule(ruleset.get(), workspace_root, handled);
 
-    for (const auto* path : {"/usr", "/lib", "/lib64", "/etc/ssl", "/etc/hosts",
-                             "/etc/resolv.conf", "/etc/nsswitch.conf", "/etc/ld.so.cache"}) {
+    for (const auto* path : {"/etc/ssl/certs", "/usr/share/ca-certificates",
+                             "/etc/ssl/openssl.cnf", "/etc/hosts", "/etc/resolv.conf",
+                             "/etc/nsswitch.conf"}) {
         if (!std::filesystem::exists(path)) continue;
         const auto access = std::filesystem::is_directory(path)
             ? LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_READ_DIR

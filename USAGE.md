@@ -117,6 +117,9 @@ compteur de liens physiques indique plusieurs noms. Un autre processus du même
 compte qui modifie le workspace simultanément reste hors de la protection de
 Landlock. Landlock ne contrôle pas les accès réseau ; la connexion au serveur
 LLM reste nécessaire au fonctionnement de l'agent.
+Le chemin `workspace/` lui-même doit être un répertoire réel : s'il est un
+lien symbolique, le démarrage est refusé. Le descripteur utilisé pour ajouter
+la règle Landlock est ouvert avec `O_NOFOLLOW` et `O_DIRECTORY`.
 
 Une fuite de `search_files` par remplacement concurrent d'un lien a été
 reproduite puis corrigée pour ce scénario : la recherche ouvre les entrées

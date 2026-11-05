@@ -59,13 +59,13 @@ int main()
 {
     auto config = load_config();
     ToolRegistry tools;
-    const auto workspace_root = std::filesystem::absolute("workspace");
-    std::filesystem::create_directories(workspace_root);
-    register_workspace_tools(tools, workspace_root);
+    std::filesystem::path workspace_root;
     try {
-        apply_filesystem_sandbox(std::filesystem::canonical(workspace_root));
+        workspace_root = prepare_workspace_root(std::filesystem::absolute("workspace"));
+        register_workspace_tools(tools, workspace_root);
+        apply_filesystem_sandbox(workspace_root);
     } catch (const std::exception& error) {
-        std::cerr << "Filesystem sandbox unavailable: " << error.what() << '\n';
+        std::cerr << "Filesystem sandbox setup failed: " << error.what() << '\n';
         return 1;
     }
 

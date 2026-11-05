@@ -194,6 +194,59 @@ versionnée existe, et cette suite est le prolongement direct du refactor
 `agent_core` (§D2) — c'est l'étape dont le projet s'est donné les moyens sans
 encore la franchir.
 
+## G. Révision TUI — TUI-0, 2026-11-05
+
+> Cette section est une proposition architecturale fondée sur le code au SHA
+> `ba1ee2e9b3535f3e5a6b79a4d544dd5b3a2ab81f`. Elle complète les sections
+> historiques ci-dessus sans réécrire leurs décisions. La décision mainteneur
+> reçue pour TUI-0 remplace explicitement l'ancien non-objectif « TUI plein
+> écran » de SPEC-UI-001 v1.1. Elle ratifie le périmètre produit, pas le choix
+> d'une bibliothèque ni l'ajout d'une dépendance.
+
+### Faits observés
+
+- UI-1 à UI-3 sont présents dans `origin/main`; UI-4 existe comme changements
+  locaux non commités sur `feat/ui-4-observable-metrics` au SHA
+  `0df28d21ad491ad4b76e5ca2c0eb5e0c14de19eb`, et n'est donc pas inclus dans la
+  base de cette section.
+- L'observateur `AgentEvent` est actuellement synchrone dans le thread de
+  `Agent::send()`. La requête HTTP/SSE est bloquante pour cet appelant.
+- La CLI classique utilise `PromptReader`, les renderers Plain/Rich, et un
+  appel `run_console_turn()` par interaction. Le moteur et la CLI imposent
+  Landlock sous Linux; `write_file` refuse `overwrite:true`.
+- Le rapport d'incident fusionné par PR #21 décrit des créations de fichiers
+  non sollicitées dans un essai rapporté et des tours non convergents. Les
+  causes racines ne sont pas établies par ce rapport. Une TUI ne constitue pas
+  un contrôle d'autorisation.
+
+### Proposition d'architecture et comparaison
+
+| Option | Atouts observés/documentés | Coûts et risques | Position proposée |
+|---|---|---|---|
+| ncursesw | C API éprouvée, entrée clavier, fenêtres, resize; wide API disponible via configuration CMake `CURSES_NEED_WIDE` | Gestion manuelle du modèle UI, focus/menu/éditeur multiligne, panneaux/scroll, cycle de vie et erreurs; les signaux/redimensionnements demandent une intégration attentive | Alternative si dépendance système préférée et si l'équipe accepte le code d'orchestration bas niveau |
+| FTXUI | C++ API de composants, menus, conteneurs, événements clavier/souris, layout DOM; changelog documente input multiligne; CMake expose Screen/DOM/Component | Nouvelle dépendance externe, acquisition/reproductibilité à décider; vérifier version/API et restauration terminal sur Linux; ne pas supposer une garantie de terminal après crash | Candidat recommandé pour POC, non approuvé pour ajout |
+| Backend personnalisé | Contrôle total, pas de bibliothèque TUI supplémentaire | Le projet devrait maintenir décodage clavier/escape, termios, focus, scroll, dimensions, largeur Unicode, redraw, resize, restauration/signaux et tests pty; risque de sécurité/maintenance le plus élevé | Non recommandé sans contrainte démontrée qui exclut les deux autres |
+
+Sources techniques vérifiées lors de TUI-0 : [FTXUI Getting Started](https://github.com/ArthurSonzogni/FTXUI/blob/main/doc/getting-started.md), [guide CMake FTXUI](https://github.com/ArthurSonzogni/FTXUI/blob/main/doc/installation_cmake.md), [changelog FTXUI](https://github.com/ArthurSonzogni/FTXUI/blob/main/CHANGELOG.md), [versions publiées](https://github.com/ArthurSonzogni/FTXUI/releases), [ncurses HOWTO](https://invisible-island.net/ncurses/NCURSES-Programming-HOWTO.html), [CMake FindCurses](https://cmake.org/cmake/help/latest/module/FindCurses.html). Ces sources ne valent pas validation locale du backend.
+
+### Séquencement candidat
+
+1. **TUI-0 — étude et spécification** : présente section et SPEC v2.0 en proposition.
+2. **TUI-1 — décision de dépendance et POC terminal** : comparer FTXUI/ncursesw en builds Debian/C++20 isolés du projet; appliquer le protocole et les critères éliminatoires du rapport complémentaire TUI-0. Aucun changement moteur ni dépendance au projet principal.
+3. **TUI-2 — worker et EventDispatcher** : isoler l'appel synchrone dans un worker, copier les événements dans une file bornée et traiter explicitement saturation et fermeture. Proposition : issue finale par canal réservé; détails individuels omis après overflow avec état dégradé. Aucune promesse de zéro perte globale sous mémoire bornée et sans contre-pression.
+4. **TUI-3 — navigation et vues** : conversation/outils/métriques/diagnostics/configuration/aide, focus clavier, compactage et terminal incompatible.
+5. **TUI-4 — conversation et saisie multiligne** : streaming unique, scroll, saisie exacte, soumission sans toucher au REPL classique.
+6. **TUI-5 — métriques et diagnostic** : intégrer le `MetricCollector` UI-4 uniquement après fusion ou port contrôlé de sa branche validée.
+7. **TUI-6 — sécurité terminal et résilience** : sanitizer de toutes les surfaces, pseudo-TTY, signaux récupérables, restauration RAII, erreurs de renderer.
+8. **TUI-7 — journal JSONL** : seulement après arbitrage du chemin, de la taille et de la politique de panne; Landlock inchangé.
+9. **TUI-8 — régression et clôture** : build/revue/tests complets, CLI classique, rapport et limitations résiduelles.
+
+Chaque phase doit recevoir sa propre autorisation. Le choix FTXUI, la file exacte et la sélection CLI/TUI restent ouverts; SPEC-UI-001 v2.0 et son rapport TUI-0 décrivent ces points comme propositions.
+
+**Complément TUI-0 :** le protocole comparatif et les recommandations de cycle
+de vie/queue sont détaillés dans
+[`2026-11-05-tui-0-poc-protocol.md`](../reports/2026-11-05-tui-0-poc-protocol.md).
+
 ---
 
 ## Annexe historique — anciennes sections A et B antérieures à M3

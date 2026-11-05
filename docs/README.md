@@ -24,7 +24,7 @@ Documents normatifs validés et spécifications en cours de ratification ; le st
 | Spécification | Contenu |
 | --- | --- |
 | [`specifications/repl-multiline-requirements.md`](specifications/repl-multiline-requirements.md) | **REPL multiline** — exigences `REPL-01` → `REPL-09` **approuvées, implémentation vérifiée au SHA daté de M4** (D-1 à D-8 et arbitrages A-1 à A-9) : déclenchement `:multi`, terminateur `:end`, conservation exacte, unicité de l'envoi, blocs vides, `exit`, EOF/Ctrl+D, retour à l'invite |
-| [`specifications/console-ui-architecture-requirements.md`](specifications/console-ui-architecture-requirements.md) | **SPEC-UI-001 v1.1** — architecture console et observabilité ; orientations ratifiées pour préparation, détails ouverts/propositions ; implémentation non autorisée |
+| [`specifications/console-ui-architecture-requirements.md`](specifications/console-ui-architecture-requirements.md) | **SPEC-UI-001 v2.0 — proposition TUI** : décision mainteneur de TUI plein écran et CLI classique indépendante ratifiée; backend, dépendance, file d'événements et interactions restent à arbitrer |
 
 ## Rapports de phase
 
@@ -89,6 +89,8 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [`2026-11-05-ui-2-final-review.md`](reports/2026-11-05-ui-2-final-review.md) | Revue contradictoire UI-2, correction de l'incohérence documentaire et validation propre avant publication |
 | [`2026-11-05-ui-3-console-renderers.md`](reports/2026-11-05-ui-3-console-renderers.md) | UI-3 — renderers Plain/Rich, neutralisation des contrôles terminal et intégration CLI; résultats au SHA de base indiqué |
 | [`2026-11-05-ui-3-final-review.md`](reports/2026-11-05-ui-3-final-review.md) | Revue finale UI-3, vérification des frontières de flux terminal, tests propres et publication |
+| [`2026-11-05-tui-0-architecture-revision.md`](reports/2026-11-05-tui-0-architecture-revision.md) | TUI-0 — étude comparative, architecture cible proposée, impacts UI-4 à UI-8 et décisions encore ouvertes |
+| [`2026-11-05-tui-0-poc-protocol.md`](reports/2026-11-05-tui-0-poc-protocol.md) | Complément TUI-0 — arbitrages worker/queue et protocole éliminatoire du POC FTXUI/ncursesw |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

@@ -1,204 +1,295 @@
-# SPEC-UI-001 — Architecture de l'interface console et de l'observabilité
+# SPEC-UI-001 — Architecture console et TUI
 
-**Version :** 1.1
+**Version :** 2.0 — proposition consolidée TUI-0
 **Date :** 2026-11-05
-**Statut :** orientations ratifiées pour préparation documentaire ; détails signalés « proposition » ou « ouvert » restent à arbitrer avant leur implémentation.
-**Base d'observation :** `23b04f582711905c96ff6c5122046145d68e237a` (merge de la PR #15).
-**Périmètre :** interface console, événements, état de présentation, progression, métriques, diagnostics et journaux.
-**Hors périmètre :** modification des décisions du modèle, TUI plein écran, annulation coopérative et changement des permissions système.
+**Statut :** décision de périmètre ratifiée ; architecture backend, choix de dépendance et détails d'interaction encore proposés ou ouverts. Ce document n'autorise pas à lui seul une implémentation.
+**Base d'étude :** `ba1ee2e9b3535f3e5a6b79a4d544dd5b3a2ab81f` (`origin/main`, après merge PR #21).
+**Périmètre :** TUI plein écran interactive, CLI classique indépendante, événements, rendu, progression, métriques, diagnostics et journaux.
+**Hors périmètre :** modification du comportement décisionnel du LLM, modification des permissions système, TUI web, exécution de commandes shell depuis l'interface.
 
-Cette spécification fixe l'architecture cible dès le départ et prévoit une réalisation par phases. Elle ne constitue pas à elle seule une autorisation de commencer UI-1. Les comportements explicitement retenus par le mainteneur sont « ratifiés » ci-dessous ; les détails non tranchés restent des propositions.
+Cette version remplace explicitement le non-objectif « TUI plein écran » de la v1.1. Le contenu technique de la v1.1 est remplacé par le contrat ci-dessous ; son existence, son ancien périmètre et ses décisions historiques restent traçables dans Git et dans le rapport TUI-0. Les décisions non expressément ratifiées ci-dessous sont des propositions, non des engagements.
 
-## 1. Contexte, objectifs et limites
+## 1. Décision, contexte et objectifs
 
-Le projet possède une CLI C++20, `agent_core`, le streaming SSE, les callbacks `AgentCallbacks`, `PromptReader`, quatre outils workspace et le confinement Linux Landlock. La CLI rend actuellement les deltas et les retours d'outils directement dans `src/main.cpp`. Il n'existe pas encore de modèle de présentation indépendant, de détection TTY/couleur, de collecteur de métriques ou de journal JSONL.
+### 1.1 Décision du mainteneur
 
-Objectifs : rendre visibles les transitions réellement observées, séparer moteur et rendu, préserver la sortie simple et les pipelines, faciliter les diagnostics, et fournir des métriques traçables. L'interface ne prouve pas la réussite fonctionnelle d'une tâche sur la seule base du texte du modèle.
+La future interface console doit pouvoir offrir une **véritable TUI plein écran**, avec menu interactif, navigation clavier, panneaux, conversation défilante et saisie multiligne. La CLI classique reste une voie distincte, utilisable avec scripts, pipes, sorties redirigées et terminaux incompatibles. La décision porte sur le produit et le périmètre, pas sur une bibliothèque précise.
 
-Non-objectifs : TUI plein écran, animation dans un thread, annulation simulée, dépendance externe supplémentaire, sonde réseau ou génération implicite au démarrage, modification des prompts ou des tool calls.
+### 1.2 Faits techniques au SHA de base
 
-## 2. Décisions ratifiées et invariants
+Le dépôt est un agent C++20. `Agent::send()` est synchrone et bloque pendant les requêtes HTTP/SSE et les appels d'outils. `AgentEventObserver::on_event(const AgentEvent&)` publie synchroniquement dans le thread de l'agent. Le chemin de présentation existant est `AgentEvent → PresentationController → PresentationState → ConsoleRenderer`; `MetricCollector` consomme les événements après acceptation de l'état. `main.cpp` conserve le `PromptReader` classique et appelle `run_console_turn()`.
 
-Les orientations suivantes sont ratifiées pour cette architecture : architecture complète définie dès le départ et mise en œuvre progressive ; contrat canonique d'événements typés ; conservation des trois callbacks historiques avec une voie d'observation distincte et compatible ; publication synchrone en première version ; isolation des exceptions des nouveaux observateurs ; comportement des callbacks historiques conservé ; aucun succès sans transition réelle ; pas de TUI plein écran, de thread d'animation ou d'annulation fictive ; conservation exacte du REPL multiligne ; prise en charge de TTY, SSH et sortie redirigée ; neutralisation des séquences terminal dangereuses ; durées mesurées par horloge monotone ; journaux persistants JSONL désactivés par défaut et alimentés par allowlist de métadonnées ; Landlock inchangé ; séparation des journaux d'exécution et rapports d'ingénierie ; aucune nouvelle dépendance externe.
+Le `Agent` conserve les callbacks historiques `on_text_delta`, `on_tool_call`, `on_tool_result`, la signature `Agent::send()` et le `ToolOutcome`. L'observateur est détenu par `std::shared_ptr`; une exception de nouvel observateur le désactive pour la durée de vie de l'agent. Les événements ont des IDs de session/tour/requête/appel d'outil, un numéro séquentiel, un horodatage UTC et un elapsed monotone. `TextDelta` transporte temporairement le fragment nécessaire au streaming.
 
-Invariants :
+Le mode terminal courant est non plein écran : Plain/Rich, capacités terminal sondées, sanitizer des données externes. Aucun raw mode ni restauration explicite termios n'est actuellement nécessaire. Le REPL utilise `PromptReader`: `:multi`, `:end`, `exit` exact en mode simple, EOF et conservation du contenu selon REPL-01…REPL-09.
 
-- **INV-01 — Historique et protocole :** ne jamais valider comme réponse complète un message assistant partiel après échec réseau ; préserver l'ordre et l'appairage assistant/tool ainsi que les `tool_call_id`.
-- **INV-02 — Streaming :** préserver l'ordre de réception des deltas SSE, le marqueur `[DONE]` obligatoire et le rejet de `finish_reason="length"`. Une réponse incomplète n'est jamais présentée comme terminée.
-- **INV-03 — Outils :** un résultat de présentation reflète l'exécution effective. Une erreur d'outil reste observable même si le modèle poursuit.
-- **INV-04 — Écriture :** `write_file` refuse actuellement `overwrite:true` jusqu'à l'isolation système de l'identité. Ne pas modifier cette décision, les écritures atomiques ni leur validation pendant UI-1.
-- **INV-05 — Sandbox :** Landlock, validation des chemins, protections symlink/hard-link et permissions ne sont pas élargis pour les besoins UI ou logs.
-- **INV-06 — REPL :** respecter `REPL-01` à `REPL-09` et les arbitrages A-1 à A-9, dont `:multi`, `:end`, `exit` exact en simple, CRLF normalisé uniquement dans le bloc, EOF qui abandonne le bloc, et aucune nouvelle ligne finale implicite.
-- **INV-07 — Secret :** aucune clé API, aucun en-tête d'authentification, prompt, corps de réponse ou contenu/argument d'outil dans les logs persistants par défaut.
-- **INV-08 — Honnêteté :** distinguer opération exécutée, succès technique et résultat fonctionnel vérifié. Le texte du modèle ne constitue pas une preuve d'exécution.
-- **INV-09 — Terminal :** aucune séquence ANSI en sortie non interactive ou non compatible ; traiter tout texte externe comme données, jamais comme contrôle terminal.
-- **INV-10 — Réversibilité :** le rendu enrichi peut être désactivé sans désactiver le moteur.
+Le moteur applique Landlock sous Linux et refuse de démarrer si le confinement ne peut être établi. `write_file` refuse `overwrite:true`. Le rapport d'incident fusionné par PR #21 documente des écritures non sollicitées et des tours non convergents rapportés lors d'un essai manuel ; les causes racines restent à départager. Une TUI ne constitue ni un garde de dispatch ni une preuve de pertinence d'une action.
 
-## 3. Architecture cible et frontières
+### 1.3 Objectifs
 
-```text
-Agent / HttpClient / SSE / ToolRegistry
-                 │ observation typée
-          AgentEventObserver (sync)
-                 │
-       PresentationController ── MetricCollector
-          │             │
-    RichRenderer   PlainRenderer   StructuredLogger (optionnel)
-```
+- Offrir une expérience TUI plein écran à l'utilisateur interactif.
+- Garder une CLI classique sélectionnable et fiable pour les pipes, scripts et terminaux non compatibles.
+- Garder moteur, événements, état, UI et backend terminal séparés.
+- Préserver les résultats réels, les erreurs, les corrélations et la confidentialité.
+- Garder l'UI réactive pendant les requêtes, sans bloquer indéfiniment un callback libcurl.
+- Restaurer au mieux l'état du terminal après succès, erreur et interruption récupérable.
 
-Le moteur publie les faits et conserve sa logique métier. L'adaptateur d'événements maintient la compatibilité avec l'API historique. Le contrôleur met à jour un état dérivé et distribue vers métriques et renderers. Les renderers n'appellent pas le moteur et n'influencent pas ses décisions. Le logger sérialise une projection autorisée, sans accès aux flux bruts.
+### 1.4 Non-objectifs et interdits
 
-Les noms exacts des types, la durée de vie du sink, l'injection dans `Agent::send` et le mécanisme d'adaptateur sont **propositions à valider en UI-1**. Aucun changement de signature publique ne doit être effectué avant revue de compatibilité.
+- Pas de changement des prompts, tool calls, historique, validation SSE ou décisions du modèle.
+- Pas d'action depuis un écran UI qui élargit les permissions ou contourne la sandbox.
+- Pas de marqueur de réussite fonctionnelle déduit du texte assistant.
+- Pas de données externes rendues comme séquences terminal actives.
+- Pas de contenu de prompt, arguments/résultats d'outils ou secret dans les diagnostics/logs par défaut.
+- Pas d'annulation présentée comme réelle tant que le moteur ne sait pas annuler.
+- Pas d'élargissement Landlock pour l'UI ou les journaux.
 
-## 4. Contrat événementiel C++20
-
-### 4.1 Forme logique proposée
-
-Contrat conceptuel (noms indicatifs, pas encore API ratifiée) :
-
-```cpp
-struct EventMetadata {
-    std::uint32_t schema_version;
-    EventType type;
-    std::chrono::system_clock::time_point timestamp_utc;
-    std::chrono::steady_clock::duration elapsed;
-    SessionId session_id;
-    std::optional<TurnId> turn_id;
-    std::optional<RequestId> request_id;
-    std::optional<ToolCallId> tool_call_id;
-    std::uint64_t sequence;
-};
-
-struct UIEvent {
-    EventMetadata metadata;
-    EventPayload payload; // std::variant de payloads typés
-};
-```
-
-`EventType` est un enum stable dans le code ; la représentation JSON utilise des noms stables en minuscules avec version de schéma. `EventPayload` est un `std::variant` dédié, sans dictionnaire libre ni sérialisation d'objets arbitraires. L'identifiant de session est opaque ; le format et le générateur restent **ouverts**. L'horodatage UTC sert à la lecture ; seules les durées fondées sur `steady_clock` servent aux mesures.
-
-### 4.2 Événements et charges utiles
-
-| Événement | Payload minimal proposé | Source / limite actuelle |
-|---|---|---|
-| `SessionStarted`, `SessionEnded` | mode de sortie, résultat de fin observé | démarrage/fin CLI |
-| `RequestStarted` | numéro de tour, longueur d'entrée éventuellement omise | `Agent::send` |
-| `HttpRequestStarted` | numéro d'itération | appel HTTP effectif |
-| `HttpResponseStarted` | statut HTTP | à instrumenter ; définition exacte à ratifier |
-| `TextDelta` | fragment éphémère en mémoire | callback de delta existant; ne pas persister le texte |
-| `ToolStarted` | nom outil | juste avant handler effectif |
-| `ToolSucceeded`, `ToolFailed` | nom, durée, état technique | handler terminé; résultat exclu des logs |
-| `HttpRequestFinished` | durée, statut, octets reçus, issue | mesures à instrumenter |
-| `WarningRaised` | code et catégorie | avertissement effectivement émis |
-| `RequestFailed` | code/catégorie et étape | exception classée par source |
-| `TurnFinished` | état technique final et compteurs | terminaison réelle du tour |
-| `SessionMetrics` | métriques agrégées autorisées | optionnel, à décider |
-
-`ToolProgress` n'est pas prévu dans la première version : aucun outil actuel ne publie un avancement mesuré. Les tokens et tokens/s ne sont affichés que si le serveur fournit une mesure à sémantique confirmée. Le temps jusqu'au premier delta de contenu ne doit pas être nommé « temps jusqu'au premier token » sans preuve.
-
-### 4.3 Ordre, corrélation et transitions
-
-Proposition : publication synchrone, ordonnée par un compteur monotone `sequence` au niveau session. Chaque requête HTTP possède un `request_id`; chaque appel outil garde son `tool_call_id`; événements de tour possèdent `turn_id`. Les débuts précèdent leurs fins ; une opération possède au plus un terminal. Événement terminal signifie seulement que l'opération s'est terminée selon son contrat technique.
-
-État proposé : `IDLE → SUBMITTED → WAITING → STREAMING` (si un delta arrive) et/ou `TOOL_RUNNING → WAITING`, puis `COMPLETED` ou `FAILED`. `WAITING` couvre les périodes sans signal intermédiaire ; aucun état `CANCELLED` en l'absence d'annulation implémentée. Les transitions précises autour des en-têtes HTTP, tool calls invalides et callbacks défaillants sont **à ratifier avant UI-1**.
-
-## 5. Compatibilité et exceptions des observateurs
-
-Garder sans changement les champs et sémantiques historiques `on_text_delta`, `on_tool_call`, `on_tool_result` et `ToolOutcome`. Ajouter une voie distincte d'observation typée, facultative. La stratégie de surcharge/constructeur et l'adaptateur sont des **propositions** ; prévoir un test de compatibilité qui prouve le même ordre et les mêmes valeurs aux anciens consommateurs.
-
-Les exceptions des nouveaux observateurs UI ne traversent jamais un callback C libcurl. Elles sont interceptées à la frontière C++ de publication ; une politique proposée désactive l'observateur défaillant et signale au mieux un diagnostic non récursif sur `stderr`. La politique exacte (désactivation par événement ou par session) est **ouverte**. Les exceptions des callbacks historiques conservent leur comportement actuel ; ne pas les avaler silencieusement ni changer leur propagation sans décision séparée. Toute exception issue du code appelé par le callback C libcurl doit néanmoins être contenue à cette frontière pour respecter l'ABI C, sans transformer une erreur en succès.
-
-## 6. Présentation terminal et capacités
-
-Modes conceptuels : riche interactif, texte simple, sortie structurée. Détection TTY, `TERM=dumb`, `NO_COLOR`, capacité Unicode et largeur terminal ; fallback ASCII lorsque nécessaire. La détection et la priorité explicite des options restent à spécifier. Aucun ANSI en sortie redirigée. Échapper/neutraliser ESC, séquences CSI/OSC, contrôles C0/C1 et séquences dangereuses dans les données externes avant rendu ; le choix exact de représentation (suppression ou échappement visible) reste ouvert et doit être testé.
-
-Palette sémantique proposée : bleu info, vert succès constaté, ambre avertissement, rouge erreur, violet activité modèle, gris secondaire. Les couleurs ne portent pas seules l'information. Pas de plein écran, pas de thread spinner, pas d'animation concurrente avec le flux. Aucun numéro de version ni état de connectivité non vérifié ; pas de sonde réseau implicite. SSH suit les règles TTY/capacités du terminal attaché.
-
-## 7. Progression et métriques
-
-Utiliser `std::chrono::steady_clock` pour durée de tour, requêtes HTTP, outils et latence jusqu'au premier delta observé. Compter seulement les requêtes, itérations, appels/outils échoués, octets reçus et avertissements effectivement observés. Une durée en cours peut être mesurée au moment de l'affichage ; sans rafraîchissement asynchrone, elle n'est pas animée en continu.
-
-Progression indéterminée : libellé d'activité, sans pourcentage. Progression déterminée uniquement avec `total > 0` observé et unités homogènes. Les itérations consommées sont un budget, pas un pourcentage d'achèvement. Aucune estimation d'ETA ou de tokens/s sans source réelle.
-
-## 8. Journaux JSONL et confidentialité
-
-La persistance JSONL est **désactivée par défaut**. JSONL est un format d'événements, pas la sortie conversationnelle machine : séparation stdout/stderr/fichier et options CLI exactes restent **ouvertes**. Chaque ligne contient une version de schéma, type stable, horodatage, séquence, corrélateurs disponibles, état et payload autorisé. Sérialisation explicite depuis une allowlist ; aucun dump générique d'événement.
-
-Allowlist initiale proposée : noms/type d'événement, codes stables, statuts, durées, nombres, taille reçue et identifiants opaques. Exclure par défaut clé API, Authorization, URL avec credentials, prompts, deltas, corps HTTP, arguments et résultats d'outils. Taille d'événement bornée. Redaction d'URL à spécifier/tester. Politique de rotation, nom/chemin, permissions et défaillance disque restent ouverts.
-
-Landlock n'est jamais élargi pour écrire des logs. Si une persistance est retenue, le chemin doit rester dans les accès déjà permis, probablement sous `workspace/`; un fichier caché n'est pas privé, car un outil peut le lire s'il connaît son chemin. La séparation des logs d'exécution dans workspace et des rapports d'ingénierie `docs/reports/` est obligatoire. Aucun log ne doit être traité comme preuve d'audit inviolable.
-
-## 9. Commandes locales et contrat REPL
-
-Commandes candidates, interprétées exclusivement en mode simple : `/help`, `/status`, `/tools`, `/metrics`, `/trace`, `/clear`, `/config`, `/quit`. `/reset` est exclu. `//` est proposé pour transmettre un slash initial littéral. Sémantique de `/clear` sans terminal, format et contenu de `/status` et échappement `//` restent à ratifier avant implémentation.
-
-En mode multiligne, chaque ligne est du contenu jusqu'à `:end` conformément à la spécification REPL approuvée ; aucune commande UI ne s'intercale, aucun trim, aucune normalisation hors de celle déjà ratifiée, aucun saut de ligne final ajouté. Les commandes ne sont jamais envoyées au LLM.
-
-## 10. Diagnostics et codes
-
-Codes candidats : `CFG_INVALID`, `HTTP_CONNECT_FAILED`, `HTTP_TIMEOUT`, `HTTP_STATUS_ERROR`, `SSE_INCOMPLETE`, `LLM_PROTOCOL_ERROR`, `TOOL_UNKNOWN`, `TOOL_ARGUMENT_INVALID`, `TOOL_EXECUTION_FAILED`, `WORKSPACE_ACCESS_DENIED`, `WORKSPACE_WRITE_FAILED`, `AGENT_ITERATION_LIMIT`, `UI_RENDER_FAILURE`, `LOG_WRITE_FAILURE`. La classification ne doit pas parser des chaînes d'exception fragiles. L'API actuelle `HttpError` est principalement textuelle ; l'ajout de catégories structurées est une proposition d'UI-5, hors du premier contrat UI-1 sauf nécessité démontrée. Chaque diagnostic expose cause observée, opération, impact et résolution si connue ; pas de secret.
-
-## 11. Matrice exigences / tests
-
-| Exigence | Composant | Invariant | Test / critère d'acceptation |
-|---|---|---|---|
-| Événements corrélés et ordonnés | observer/adaptateur | INV-01 à 03 | séquence, début/fin, IDs tool préservés ; aucune transition fabriquée |
-| Compatibilité callback | adaptateur Agent | INV-01, 03 | anciens callbacks reçoivent mêmes valeurs et ordre qu'avant |
-| Isolation callback UI | frontière observer/HTTP | INV-02, 08 | exception UI n'échappe pas à callback C ; callback historique conserve sa politique |
-| État et verdict technique | contrôleur | INV-03, 08 | échecs/incomplet restent distincts d'une fin réussie |
-| TTY, couleurs et fallback | capabilities/renderers | INV-09, 10 | TTY, SSH simulé, redirection, `TERM=dumb`, `NO_COLOR`, ASCII, largeur étroite |
-| Neutralisation terminal | renderers | INV-09 | ESC/CSI/OSC/C0/C1 des données n'exécutent ni n'émettent de séquence active |
-| REPL et commandes | dispatcher/PromptReader | INV-06 | tests REPL existants + tests mode simple, slash littéral, bloc intact |
-| Métriques et progression | MetricCollector | INV-08 | horloge monotone, compteurs de sources réelles, aucun pourcentage sans total |
-| JSONL et allowlist | logger | INV-05, 07 | JSON par ligne, schéma stable, secret et contenus absents |
-| Landlock et logs | logger/sandbox | INV-05 | permissions inchangées, chemins permis seulement, échec explicite |
-| Retour plain sans UI | renderer/CLI | INV-10 | moteur utilisable sans renderer riche ni logger |
-
-Les tests précis sont à ajouter par phase ; aucune ligne de cette matrice ne prétend qu'un test UI existe déjà.
-
-## 12. Plan progressif UI-1 à UI-8
-
-| Phase | Périmètre et fichiers indicatifs | Dépendances / sortie |
-|---|---|---|
-| UI-1 — Contrat et instrumentation | nouveaux `include/ui/ui_event.hpp`, `src/ui/ui_event.cpp` si sérialisation requise ; `include/agent.hpp`, `src/agent.cpp`, `src/http_client.cpp`, CMake, tests Agent/HTTP | API observer revue, callbacks préservés, ordre/corrélation testés, exceptions C-boundary contenues |
-| UI-2 — État et capacités | `presentation_state`, `terminal_capabilities`, tests UI | dépend UI-1; transitions pures, TTY/fallback |
-| UI-3 — Rendu et CLI | renderers plain/rich, `src/main.cpp` | dépend UI-2; streaming propre et sanitizer |
-| UI-4 — Progression/métriques | `metrics`, tests horloge/compteurs | mesures observables uniquement |
-| UI-5 — Erreurs | classification et `ErrorPresenter` | codes stables, aucun parsing fragile non documenté |
-| UI-6 — JSONL | logger, sérialisation, tests privacy/échec | choix chemin/permissions/rotation requis ; Landlock inchangé |
-| UI-7 — commandes REPL | dispatcher, tests `PromptReader` et CLI | commandes simple seulement, bloc intact, `/reset` absent |
-| UI-8 — clôture | tests d'intégration, docs et rapport final | régression, terminal, confidentialité, perf mesurée et verdict |
-
-Les noms de fichiers sont indicatifs jusqu'à l'examen détaillé de chaque phase. Le périmètre de chaque phase nécessite une autorisation distincte ; une phase ne vaut pas autorisation pour la suivante.
-
-## 13. Risques, retour arrière et acceptation finale
-
-Risques principaux : exception propagée depuis un callback libcurl ; altération du contenu SSE ou du REPL ; contrôle terminal injecté par une donnée ; fuite de secrets via JSONL ; conflit de permissions Landlock ; métriques interprétées comme réussite fonctionnelle ; ajout involontaire d'événements au chemin historique.
-
-Retour arrière par phase : retirer l'adaptateur/renderer/logging nouvellement ajouté en préservant l'API historique, puis relancer la suite existante. Ne jamais supprimer ou réécrire l'historique utilisateur pour revenir en arrière. Chaque phase conserve son rapport durable et un diff limité.
-
-Acceptation finale : tests historiques et UI réussis sur la base retenue ; aucun ANSI en sortie plain ; streaming, tool-call et historique conformes ; exceptions UI contenues ; REPL inchangé ; mesures fondées ; JSONL valide, off par défaut, allowlist et secrets absents ; Landlock inchangé ; rapport indiquant séparément observé, non vérifié et échec. Aucun serveur LLM réel n'est requis pour prétendre à une validation unitaire, et aucun résultat de tâche modèle n'est certifié par l'UI seule.
-
-## 14. Registre des décisions
+## 2. Statut des décisions
 
 | Sujet | Statut |
 |---|---|
-| 20 orientations listées au §2 | **RATIFIÉES comme contraintes d'architecture** ; pas une autorisation d'implémentation |
-| Trois callbacks historiques conservés ; voie distincte d'événements | **RATIFIÉ** ; signatures exactes de la nouvelle API ouvertes |
-| Publication synchrone, observer UI isolé, politique legacy conservée | **RATIFIÉ** ; portée de désactivation d'un observer défaillant ouverte |
-| Événements et charges utiles du §4 | **CONTRAT PROPOSÉ** ; cycle exact et sémantique de réponse HTTP à ratifier |
-| IDs, sérialisation et ordre par séquence | **PROPOSITION** ; générateur/format des IDs ouvert |
-| Modes de sortie, capacités et sanitizer | **ORIENTATION RATIFIÉE** ; détection/option precedence et politique d'échappement ouvertes |
-| Métriques monotones, aucune fausse progression | **RATIFIÉ** ; présentation des durées en direct ouverte |
-| JSONL désactivé, allowlist, Landlock inchangé | **RATIFIÉ** ; chemin, permissions, rotation, panne et CLI ouverts |
-| Commandes simples, `//`, pas de `/reset` | mode simple et exclusion `/reset` ratifiés ; `//` reste une proposition à confirmer |
-| Codes diagnostiques et états exacts | **PROPOSITION** ; modèle d'erreur et nomenclature à valider |
+| TUI plein écran avec menu, navigation clavier, panneaux et saisie multiligne | **RATIFIÉ — décision mainteneur TUI-0** |
+| CLI classique indépendante, préservée pour scripts/pipes/incompatibilités | **RATIFIÉ — décision mainteneur TUI-0** |
+| Préserver `Agent::send`, callbacks historiques, SSE, historique, Landlock, refus `overwrite:true` et contrat REPL classique | **RATIFIÉ — invariants de projet** |
+| Frontières moteur/observation/état/UI/backend séparées | **RATIFIÉ — orientation d'architecture** |
+| FTXUI comme candidat recommandé | **PROPOSITION — dépendance externe; accord explicite requis avant ajout** |
+| Backend ncursesw ou terminal personnalisé | **OPTIONS comparées, aucun choix ratifié** |
+| Terminal possédé uniquement par le thread UI; worker Agent séparé | **RECOMMANDATION TUI-0 — à ratifier avant POC intégré** |
+| Worker persistant unique avec au plus une tâche `send` en vol | **RECOMMANDATION TUI-0 — à ratifier** |
+| File de capacité fixe, non bloquante, avec signal explicite de perte | **RECOMMANDATION TUI-0 — à ratifier et mesurer** |
+| Mode de sélection `auto|classic|tui`, raccourcis et disposition des panneaux | **PROPOSITIONS à arbitrer** |
+| Capacités de souris, historique de session, politiques de dépassement de file | **OUVERT** |
 
-## 15. Sources internes
+## 3. Architecture cible
 
-- [`AGENTS.md`](../../AGENTS.md) — architecture et invariants au HEAD de base.
-- [`USAGE.md`](../../USAGE.md) — outils, écriture et limites opérationnelles.
-- [`repl-multiline-requirements.md`](repl-multiline-requirements.md) — contrat REPL approuvé.
-- [`ROADMAP.md`](../roadmap/ROADMAP.md) — faits, propositions et limites documentées.
-- [`OPEN_QUESTIONS.md`](../questions/OPEN_QUESTIONS.md) — décision Q20 sur `overwrite:true`.
-- [`2026-11-05-ui-0c-specification-ratification.md`](../reports/2026-11-05-ui-0c-specification-ratification.md) — preuves de cette ratification documentaire et résultats de validation.
+```text
+                    ┌────────────────────────────┐
+                    │ CLI classique (existante)  │
+                    │ PromptReader + Plain/Rich  │
+                    └──────────────┬─────────────┘
+                                   │ Agent::send()
+┌──────────────────────────────────▼─────────────────────────┐
+│ agent_core : Agent / HTTP / SSE / ToolRegistry / sandbox    │
+└──────────────────────────────────┬─────────────────────────┘
+                                   │ AgentEvent, observer UI-1
+                         ┌─────────▼──────────┐
+                         │ Event bridge/queue │  candidat
+                         └─────────┬──────────┘
+                                   │ valeur possédée
+                  ┌────────────────▼─────────────────┐
+                  │ PresentationState + MetricCollector│
+                  └────────────────┬─────────────────┘
+                                   │ snapshot
+                         ┌─────────▼──────────┐
+                         │ TuiApplication    │
+                         │ navigation / input │
+                         └─────────┬──────────┘
+                                   │
+                         ┌─────────▼──────────┐
+                         │ TUI backend        │
+                         └────────────────────┘
+```
+
+La CLI classique et la TUI réutilisent le même moteur et les mêmes événements, mais ne rendent jamais simultanément les mêmes `TextDelta`. La TUI possède son propre modèle de saisie; elle ne réutilise pas `PromptReader` en mode interactif plein écran. `Agent::send(std::string, callbacks)` reste l'API du moteur.
+
+### 3.1 Responsabilités
+
+- **Moteur** : exécute les requêtes, outils et protocole; émet uniquement les événements factuels existants ou dûment instrumentés. Ne connaît ni écran ni backend.
+- **Event bridge** : copie les événements reçus dans une file de valeurs possédées; ne conserve aucune référence au `AgentEvent` emprunté.
+- **EventDispatcher/queue** : préserve l'ordre séquentiel et corrèle la livraison; expose fermeture, surcharge et erreur explicitement.
+- **PresentationState** : projection déterministe des événements acceptés, sans effets moteur ni conservation de fragments.
+- **MetricCollector** : agrégats issus uniquement des métadonnées observées et d'horloges monotones.
+- **TuiApplication** : boucle propriétaire de l'état UI, du focus, de l'écran et de l'interaction clavier.
+- **Backend terminal** : clavier, dimensions, écran alternatif, rendu et restauration RAII. Aucun contrôle terminal direct depuis les données modèle/outils.
+- **CLI classique** : reste le repli indépendant et ne prend pas le raw mode.
+
+## 4. Backend et compatibilité
+
+La comparaison d'architecture TUI-0 est consignée dans le rapport. La recommandation provisoire est FTXUI, conditionnée à une approbation distincte de la dépendance, à un pin de version et à des tests sur l'environnement Linux réellement supporté. ncursesw est une alternative système mature mais de plus bas niveau. Un backend maison n'est pas recommandé sans contrainte qui l'impose.
+
+La base CMake déclarée du projet est 3.20. Toute intégration proposée doit vérifier le CMake minimal du tag FTXUI choisi, les options de build et le mode d'acquisition reproductible. Aucun téléchargement par branche flottante. Le backend choisi doit être optionnel/configuré afin que la CLI classique reste compilable ou disponible sans mode TUI.
+
+Le projet refuse actuellement de démarrer hors Linux en raison du confinement. Cette spécification ne déclare pas de support runtime multiplateforme. Les interfaces de présentation peuvent rester portables, mais le binaire ne doit pas désactiver Landlock pour rendre la TUI disponible.
+
+## 5. Modèle d'événements et exécution réactive
+
+### 5.1 Événements
+
+Le contrat canonique reste `agent::ui::AgentEvent`; ne pas créer un type miroir TUI. Les types UI-1 actuels sont `RequestStarted`, `HttpRequestStarted`, `TextDelta`, `ToolStarted`, `ToolSucceeded`, `ToolFailed`, `HttpRequestFinished`, `RequestFailed`, `TurnFinished`. L'ordre source est `metadata.sequence`; IDs et timestamps restent inchangés. Les deltas ne sont pas persistés comme métriques ou logs.
+
+### 5.2 Propriété et cycle de vie recommandés
+
+**Proposition à ratifier :** un seul thread possède exclusivement le terminal, le backend, `TuiApplication`, `PresentationState` et `MetricCollector`. Aucun worker n'écrit directement dans stdout/stderr du terminal ni n'appelle le backend. Cela élimine les redraw concurrents et donne un point unique de restauration RAII.
+
+Un worker persistant unique possède l'`Agent` et exécute au plus un `Agent::send()` à la fois. La TUI ne soumet une interaction qu'à l'état idle; elle peut garder un brouillon éditable pendant le tour mais ne lance pas de second appel concurrent. L'`Agent`, les callbacks historiques et toute donnée capturée par ceux-ci restent confinés au worker. Les objets capturés survivent jusqu'au join. L'API publique de l'agent ne devient pas thread-safe par cette composition.
+
+Le worker utilise une tâche d'entrée à capacité un et un canal de complétion à un résultat. Cycle : démarrer thread après construction des objets capturés; accepter une tâche uniquement quand aucune n'est en vol; exécuter `send`; publier résultat technique/exception; attendre la prochaine tâche; à fermeture, refuser les nouvelles soumissions, finir la tâche en cours, demander l'arrêt, puis `join` avant de détruire l'Agent, l'observateur ou le backend. Destruction et join sont RAII, sans détacher de thread.
+
+### 5.3 File bornée, perte et conservation des statuts — arbitrage proposé
+
+Il est impossible, pour un flux de taille et de débit non bornés, de garantir simultanément (a) callback toujours non bloquant, (b) aucune perte, et (c) mémoire bornée. Il faut donc exposer le compromis. Recommandation TUI-0 : privilégier mémoire bornée et réactivité; une saturation peut rendre le transcript incomplet, mais ne doit jamais être silencieuse.
+
+Le POC doit tester une file à capacité fixe en nombre d'éléments et en charge utile, avec copies d'événements dont les chaînes sont validées/limitées avant allocation. La valeur numérique de la capacité ne sera choisie qu'après mesures du débit/délai de rendu. Si une allocation peut dépasser ces bornes, le prototype ne démontre pas la borne mémoire demandée. Le callback producteur effectue un dépôt opportuniste de durée bornée; si un verrou ne peut être acquis immédiatement, l'événement texte est perdu et le flux passe en état dégradé. Aucun callback ne dort en attendant la capacité. Le choix précis entre SPSC atomique et mutex `try_lock` doit être justifié par le POC et testé avec TSAN si disponible; pas de queue lock-free présumée correcte.
+
+Politique de surcharge proposée : arrêter de mettre en file les deltas de ce tour après le premier overflow; poser un latch atomique `display_incomplete`; ne pas tenter une resynchronisation partielle de `PresentationState` après un trou de séquence. Les évènements non terminaux suivants peuvent être omis et l'UI ne prétend plus présenter le détail complet. Les deltas ne sont pas regroupés dans la première version : coalescer des événements change leur nombre/sequence attendu par `PresentationState`/`MetricCollector` et exigerait un contrat explicite de plage de séquences et de nombre de fragments.
+
+**Garantie proposée limitée :** réserver un emplacement fixe par tour pour le résultat final du worker (retour normal ou `exception_ptr`) et des emplacements pour `RequestFailed` et `TurnFinished` (au plus un de chacun par tour selon le contrat AgentEvent). Ces emplacements ne sont pas la queue ordinaire. Le worker remet le résultat avant d'indiquer sa complétion; le thread UI consomme la queue restante, puis les éléments réservés dans l'ordre de `metadata.sequence`, en marquant explicitement les séquences manquantes. La vue peut donc toujours annoncer l'issue technique réelle du tour, même si le texte ou des détails intermédiaires sont incomplets.
+
+Cette garantie **ne couvre pas chaque terminal d'opération** (`HttpRequestFinished`, `ToolSucceeded` ou `ToolFailed`) pendant une saturation. Les détails individuels éventuellement omis sont signalés comme incomplets; les compteurs finaux fournis par `TurnFinished` restent présentables. Aucun succès d'outil individuel n'est fabriqué. Si une conservation exacte de tous les événements terminaux d'opération est exigée, il faut une borne amont démontrée sur leur nombre et leur taille, ou accepter de la contre-pression bloquante; ce choix reste ouvert et ne peut être promis dans la présente architecture.
+
+### 5.4 Erreurs d'observateur et renderer
+
+L'observateur de queue est conçu pour ne pas lancer d'exception. Si une exception survient néanmoins, UI-1 désactive définitivement cet observateur; `on_observer_failure()` ne publie pas récursivement et ne fait qu'armer un latch atomique. La TUI signale ensuite une seule fois « observabilité indisponible » depuis son thread. Le worker continue le moteur; le résultat final de `send` reste consultable par le canal de complétion. Les callbacks historiques gardent leur propagation et ne sont pas désactivés/masqués par la politique UI.
+
+Une erreur de renderer est capturée dans le thread UI : arrêter les appels au renderer défaillant, restaurer le terminal, garder l'issue worker et utiliser stderr classique seulement si le descripteur reste disponible. Ne jamais transformer une erreur de rendu en échec d'outil ni en succès moteur.
+
+### 5.5 Fermeture, interruption et perte de terminal
+
+Sans annulation coopérative, la fermeture pendant `send()` ne peut pas garantir une fin rapide. La politique recommandée est « fermer après le tour courant » : l'UI cesse d'accepter de nouvelles interactions et affiche qu'elle attend; le worker continue jusqu'au retour/exception du moteur, puis est joint. Le timeout courant est par requête HTTP et le tour peut effectuer plusieurs requêtes/outils; aucun timeout global de tour n'est démontré. La durée d'attente peut donc dépasser un timeout HTTP et n'a pas de borne globale garantie.
+
+À réception de SIGINT/SIGTERM/SIGHUP récupérable, le handler ne fait que notifier le thread UI; celui-ci restaure le terminal et applique la politique de fermeture. Un signal OS ou une terminaison forcée peut toujours tuer le processus; SIGKILL, crash noyau et perte d'alimentation ne peuvent pas être interceptés. Sur perte de terminal détectée, cesser immédiatement tout rendu, restaurer best-effort, drainer ou jeter les événements UI selon la politique bornée et attendre la fin du worker avant sortie. Si la terminaison du processus est imposée de l'extérieur, aucune restauration n'est garantie.
+
+### 5.6 Sortie CLI non interactive
+
+La CLI classique reste un chemin indépendant. stdin/stdout non-TTY, `TERM=dumb`, capacités insuffisantes ou `--ui=classic` ne démarrent pas la session terminal ni le worker TUI; ils utilisent le flux classique actuel, Plain lorsque redirigé, avec stdout pour la conversation et stderr pour les diagnostics. L'option explicite reste une proposition. Un échec d'initialisation TUI doit restaurer ce qui a déjà été modifié avant un repli; aucun ANSI ou contrôle plein écran ne doit être écrit dans un pipe. `--ui=tui` en environnement non compatible doit échouer clairement ou retomber en mode classic selon un choix produit à ratifier.
+
+## 6. Cycle de vie terminal
+
+`TuiApplication` n'initialise le mode interactif qu'après validation des descripteurs TTY et de la capacité backend. Il utilise une session RAII : acquisition partielle vérifiée, écran alternatif/raw ou cbreak/echo contrôlés, dimensions actualisées, sortie et restauration dans le destructeur. En cas d'échec de setup, l'état terminal partiellement modifié est restauré avant repli/erreur.
+
+Les signaux récupérables doivent être relayés vers la boucle normale via un mécanisme sûr (flag `sig_atomic_t`/self-pipe ou mécanisme documenté du backend); aucun rendu complexe ni allocation dans un handler de signal. La sortie normale, exception, EOF et SIGINT/SIGTERM sont testés sous pseudo-terminal. SIGKILL, perte d'alimentation et crash noyau ne sont pas interceptables; documenter la limite et le remède manuel (`stty sane`) sans prétendre à une restauration garantie.
+
+Le backend ne reçoit jamais de chaînes non fiables comme séquences de contrôle. Les contenus conversationnels, noms d'outils et diagnostics externes passent par la neutralisation existante ou une voie équivalente vérifiée. Les contrôles générés par le backend restent séparés des données.
+
+## 7. UX et navigation — proposition
+
+### 7.1 Écrans
+
+1. **Conversation** : historique de session affiché, réponse en streaming, compositeur multiligne, état courant et activité d'outil factuelle.
+2. **Outils** : noms, descriptions/schémas présentables et compteurs observés; écran consultatif, aucune commande de permission.
+3. **Métriques** : données de `MetricCollector` disponibles, unités et indisponibilités explicites; aucun token/s, pourcentage ou ETA inféré.
+4. **Diagnostics** : erreurs et événements techniques corrélés, sans prompt, secret, arguments ni résultat d'outil.
+5. **Configuration** : modèle, endpoint expurgé, timeout, workspace et capacités terminal; jamais la valeur de `LLM_API_KEY`.
+6. **Aide** : navigation, saisie, statut des touches et voie de sortie.
+
+Le terme « historique » désigne le transcript d'affichage de la session TUI seulement. Il ne modifie pas l'historique conversationnel envoyé au LLM. Une politique de conservation/limite du transcript doit être spécifiée avant implémentation.
+
+### 7.2 Touches proposées
+
+- `Tab` / `Shift+Tab` : prochain/précédent focus; focus visuel explicite.
+- Flèches : déplacement dans le menu si celui-ci a le focus; navigation dans la conversation ou le texte sinon.
+- `Enter` : activer l'élément sélectionné; dans le compositeur, soumettre selon le raccourci confirmé ci-dessous.
+- `Escape` : fermer un panneau/modal ou revenir à Conversation; ne prétend pas annuler une requête.
+- `Ctrl+Enter` : proposition de soumission multiligne; `Enter` insère une nouvelle ligne. À valider avec le backend, terminaux et accessibilité.
+- `Ctrl+C` : comportement à arbitrer; le choix recommandé est fermeture propre avec avertissement si requête en cours, sans prétendre l'arrêter.
+- Raccourcis de navigation `1` à `6` ou touches de fonction : proposition à tester contre la saisie du compositeur.
+
+### 7.3 Mise en page adaptative
+
+Large terminal : menu latéral, conversation principale, panneau contextuel; terminal moyen : panneau unique avec navigation; terminal très étroit/bas : vue compacte sans colonnes simultanées, ou repli vers CLI classique si backend ne peut garantir un affichage lisible. Les seuils minimaux ne sont pas ratifiés. Le redimensionnement ne doit ni perdre le texte saisi ni modifier le transcript.
+
+Le mode TUI est réservé à une entrée/sortie interactive compatible. La politique exacte de sélection CLI/TUI reste ouverte. Proposition : option explicite `--ui=classic|tui|auto`; `auto` n'entre en TUI que si stdin/stdout/stderr et backend passent les contrôles, sinon reste en CLI classique. Aucun mode forcé ne contourne les protections terminal ou Landlock.
+
+## 8. Métriques et progression
+
+UI-4 fournit déjà un collecteur dans la branche de travail TUI-0, mais ces changements ne sont pas fusionnés dans le `main` de référence. Les métriques candidate restent : durée tour, durée HTTP et outils, latence client jusqu'au premier delta, compteurs requêtes/outils/fragments, octets reçus et statut technique final. Les unités et sources sont ceux de `AgentEvent` et `steady_clock`; indisponible n'est pas zéro. Les fragments ne sont pas des tokens. Pas de tokens/s sans source fiable.
+
+La TUI affiche uniquement des états observés : requête en cours, flux reçu, outil en cours/terminé, tour fini/échoué. La progression de génération demeure indéterminée faute de total mesuré. Pas de spinner en thread, pourcentage, ETA ou réussite fonctionnelle inventés.
+
+## 9. Journaux et confidentialité
+
+JSONL persistant reste désactivé par défaut. Toute sérialisation passe par allowlist. Interdits par défaut : clé API, Authorization, prompts, deltas, corps HTTP, arguments/résultats d'outils et URL avec credentials. Toute taille est bornée et les caractères dangereux sont encodés/sanitisés selon le format. Les journaux ne sont pas une preuve d'audit inviolable.
+
+Ne pas élargir Landlock pour logs, crash dumps ou captures terminal. La TUI ne capture pas de transcript persistant par défaut. Un chemin log, permissions, rotation et panne restent une décision future. `docs/reports/` demeure réservé aux rapports d'ingénierie, séparé du workspace runtime.
+
+## 10. Compatibilité et invariants moteur
+
+Les invariants suivants s'appliquent à toute implémentation TUI :
+
+1. `Agent::send`, callbacks `on_text_delta`, `on_tool_call`, `on_tool_result` et `ToolOutcome` restent compatibles.
+2. Événements du modèle ordonnés par SSE; `[DONE]` requis; `finish_reason="length"` échoue; aucun assistant partiel ajouté à l'historique.
+3. Appairage assistant/tool et IDs `tool_call_id` conservés.
+4. Échec outil observé même si le modèle poursuit; aucun résultat fonctionnel déduit.
+5. Historique du moteur et limites agentiques inchangés.
+6. `PromptReader`/CLI classique préserve exactement `:multi`, `:end`, `exit`, EOF, CRLF et les lignes décrits par REPL-01…REPL-09.
+7. La saisie multiligne TUI devient un seul contenu `std::string` passé à `Agent::send`; elle n'insère aucune commande dans le REPL classique.
+8. Landlock et validation de chemins restent identiques; TUI n'est pas un mécanisme d'autorisation.
+9. `write_file` refuse toujours `overwrite:true`; aucune approbation par menu ne change cette politique.
+10. Exceptions d'observateur isolées; exceptions historiques préservées; aucune exception C++ traverse une frontière C libcurl.
+11. Sanitizer protège toutes les surfaces terminal; aucune donnée non fiable ne peut déplacer le curseur, modifier le titre ou créer un lien terminal.
+12. CLI classique garde stdout/stderr séparés, sans ANSI sur les sorties redirigées.
+
+Le rapport d'incident PR #21 impose une prudence supplémentaire : l'interface peut montrer un tool call et son résultat réellement observés, mais elle ne prévient pas une action non sollicitée. Toute politique d'autorisation d'action est un sujet moteur distinct et ne fait pas partie de TUI-0.
+
+## 11. Matrice exigences / validation
+
+| Exigence | Composant | Invariant | Test d'acceptation futur |
+|---|---|---|---|
+| CLI classique toujours disponible | sélection UI / `main` | REPL-01…09 | tests CLI simples, pipelines, TTY absent, mêmes prompts et appels |
+| TUI réactive pendant `send` | worker + file | Agent non concurrent; issue finale conservée; détails perdus signalés explicitement | pseudo-TTY; injecter délai HTTP et vérifier navigation; arrêt/join sans attente indéfinie dans callback |
+| Ordre/corrélation | queue + `PresentationState` | séquence et IDs AgentEvent | plusieurs HTTP/outils, trous, duplicatas, surcharge |
+| File mémoire bornée | event bridge + mailbox final | callback sans attente de capacité; perte explicitement dégradée | stress de saturation; `RequestFailed`/`TurnFinished` conservés par slots dédiés; opérations individuelles manquantes signalées |
+| TextDelta affiché sans duplicata | renderer TUI | flux SSE inchangé | delta fractionné, tool entrelacé, erreurs et reprise |
+| Erreurs UI/renderer | TuiApplication/backend | résultat moteur inchangé | renderer qui lève, dégradation, restauration terminal, statut conservé |
+| Restauration terminal | TerminalSession RAII | pas de corruption durable | pseudo-TTY fin normale, exception, SIGINT/SIGTERM, setup partiel |
+| Navigation et éditeur | composants TUI | contenu envoyé inchangé | Tab, flèches, Enter, Esc, Unicode, multiline, resize, focus |
+| Petites dimensions | layout | pas de chevauchement ou contenu perdu | matrice tailles, seuil de repli observé |
+| Données terminal hostiles | sanitizer/backend | INV-11 | ESC/CSI/OSC/DCS/C0/C1/bidi fragmentés sur chaque écran |
+| Outils et métriques | projection UI | pas de permission/faux succès | erreur outil récupérée, valeurs indisponibles, aucune mutation UI |
+| Confidentialité | diagnostics/logger | allowlist, secrets absents | sentinelles prompt/API/arguments/résultats absentes |
+| Landlock/overwrite | moteur inchangé | permissions et refus actuels | comparaison de diff + tests sandbox/write existants |
+
+Un pseudo-terminal vérifie le flux applicatif avec un émulateur terminal contrôlé; il ne prouve pas le comportement de tous les émulateurs, polices, lecteurs d'écran ou environnements SSH.
+
+## 12. Roadmap proposée
+
+Chaque phase nécessite une autorisation distincte. La décision d'avoir une TUI ne vaut pas autorisation implicite de chaque changement de code ou dépendance.
+
+| Phase | Périmètre proposé | Critère de sortie |
+|---|---|---|
+| TUI-0 | Étude architecture et révision normative (présente phase) | décision, comparaison, contrat, risques et roadmap documentés |
+| TUI-1 | POC backend et dépendance, sélection CLI/classic/TUI; pas de moteur | build reproductible, option de dépendance ratifiée, TTY/pseudo-TTY et restauration démontrés |
+| TUI-2 | Event bridge, worker unique, queue bornée, fermeture/erreurs | ordre jusqu'au point de saturation; perte explicite; issue finale livrée; aucun engagement de conservation des événements individuels sous overload |
+| TUI-3 | shell visuel, menus, focus, layout adaptatif et vues Outils/Aide/Config | clavier, dimensions, terminal incompatible, tests contrôlés |
+| TUI-4 | Conversation, streaming et compositeur multiligne | texte exact une seule fois, scroll, événements/outils, erreurs partielles |
+| TUI-5 | Intégration MetricCollector, vues métriques/diagnostics | mesures seulement observées et indisponibilités explicites |
+| TUI-6 | Sécurité terminal, signaux, récupération et accessibilité | tests pseudo-TTY adverses, sanitisation, limites documentées |
+| TUI-7 | Logs JSONL optionnels, seulement après décision dédiée | allowlist, confidentialité, Landlock inchangé et panne explicite |
+| TUI-8 | régression, documentation et revue finale | CLI/TUI, tests complets, rapport, aucun invariant régressé |
+
+UI-4 métriques/observabilité demeure le jalon en cours séparé; son statut Git doit être résolu avant de baser une implémentation ultérieure. La roadmap TUI réutilise le travail UI-1 à UI-4 lorsqu'il est effectivement intégré, sans le présumer.
+
+## 13. Risques, retour arrière et acceptation
+
+Risques majeurs : dépendance externe et chaîne d'approvisionnement; incompatibilité CMake/plateforme; terminal laissé en mode brut; deadlock ou perte d'événements à la saturation; exception renderer; perte du statut final; concurrence accidentelle sur `Agent`; saisie modifiée; contrôles terminal injectés; confusion entre affichage d'un outil et autorisation; interprétation de « completed » comme réussite fonctionnelle.
+
+Retour arrière : garder la CLI classique comme chemin indépendant; isoler le backend dans une cible et un adaptateur UI; désactiver TUI par option/configuration sans modifier `agent_core`; préserver `Agent::send`; aucun changement Landlock. Si la restauration ou le transfert des événements est ambigu, ne pas activer le mode TUI par défaut.
+
+Acceptation finale : choix backend approuvé; dépendance pin et builds reproductibles; CLI classique sans régression; TUI pilotable au clavier et résiliente aux petites dimensions; flux et tool calls inchangés; événements ordonnés jusqu'à toute perte déclarée; `RequestFailed`/`TurnFinished` et issue worker conservés par leur canal dédié; pertes de détails d'opération signalées, jamais présentées comme complètes; worker/queue sans data race ni attente indéfinie dans le callback; statut terminal toujours honnête; restauration RAII vérifiée en cas normal/exception/signaux récupérables; contenu dangereux neutralisé; Landlock et refus `overwrite:true` inchangés; secrets absents; tests CTest et pseudo-TTY réels exécutés; rapport distinguant faits, échecs et non vérifié.
+
+## 14. Registre des décisions et questions ouvertes
+
+| Décision ou sujet | Statut au TUI-0 |
+|---|---|
+| TUI plein écran, menu, navigation clavier, panneaux, saisie multiligne | **RATIFIÉ** par le mainteneur; remplace le non-objectif v1.1 |
+| CLI classique indépendante | **RATIFIÉ** |
+| AgentEvent canonique, callbacks historiques, moteur et sécurité préservés | **RATIFIÉ** |
+| FTXUI | **RECOMMANDATION**, décision et ajout de dépendance non ratifiés |
+| Thread UI seul propriétaire terminal; worker Agent unique et séquentiel | **RECOMMANDATION TUI-0**, à ratifier |
+| File bornée, dépôt sans attente de capacité, flux déclaré incomplet au premier overflow | **RECOMMANDATION TUI-0**, à ratifier |
+| Slots dédiés pour `RequestFailed`/`TurnFinished` et résultat worker | **RECOMMANDATION TUI-0**, à ratifier; ne préserve pas tous les terminaux HTTP/tool |
+| Aucun coalescing initial des `TextDelta` | **RECOMMANDATION TUI-0**, à ratifier; évite de changer la sémantique sequence/compteurs |
+| `--ui=auto|classic|tui` | **PROPOSITION** |
+| Raccourcis, touche de soumission, rôle d'Escape/Ctrl+C | **OUVERT** |
+| Capacité souris | **OPTIONNEL / OUVERT** |
+| Limites du transcript, file, seuil de terminal compact | **OUVERT** |
+| Logs persistants et chemin | désactivés par défaut; choix futur requis, Landlock inchangé |
+| Autorisation déterministe des tools/mutations | sujet moteur séparé; non résolu par la TUI |
+
+## 15. Sources et documents de référence
+
+- [REPL multiligne approuvé](repl-multiline-requirements.md).
+- [Roadmap](../roadmap/ROADMAP.md) et [rapport TUI-0](../reports/2026-11-05-tui-0-architecture-revision.md).
+- FTXUI : [architecture Screen/DOM/Component et CMake](https://github.com/ArthurSonzogni/FTXUI/blob/main/doc/getting-started.md), [guide CMake](https://github.com/ArthurSonzogni/FTXUI/blob/main/doc/installation_cmake.md), [changelog](https://github.com/ArthurSonzogni/FTXUI/blob/main/CHANGELOG.md), [versions publiées](https://github.com/ArthurSonzogni/FTXUI/releases).
+- ncurses : [Programming HOWTO](https://invisible-island.net/ncurses/NCURSES-Programming-HOWTO.html), [intro et resize](https://invisible-island.net/ncurses/ncurses-intro.html), [CMake FindCurses](https://cmake.org/cmake/help/latest/module/FindCurses.html).
+- Ces sources décrivent des capacités de bibliothèque; elles ne remplacent pas les essais de compatibilité sur le backend/version réellement épinglé.

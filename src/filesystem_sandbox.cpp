@@ -135,7 +135,10 @@ void apply_filesystem_sandbox(const std::filesystem::path& workspace_root)
                                  + std::system_error(errno, std::generic_category()).what());
     }
 
-    const auto workspace_access = handled & ~static_cast<std::uint64_t>(LANDLOCK_ACCESS_FS_EXECUTE);
+    const std::uint64_t workspace_access = LANDLOCK_ACCESS_FS_READ_FILE
+        | LANDLOCK_ACCESS_FS_READ_DIR | LANDLOCK_ACCESS_FS_WRITE_FILE
+        | LANDLOCK_ACCESS_FS_REMOVE_FILE | LANDLOCK_ACCESS_FS_MAKE_DIR
+        | LANDLOCK_ACCESS_FS_MAKE_REG;
     add_workspace_rule(ruleset.get(), workspace_root, workspace_access);
 
     for (const auto* path : {"/etc/ssl/certs", "/usr/share/ca-certificates",

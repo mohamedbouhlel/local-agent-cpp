@@ -1,5 +1,7 @@
 #include "filesystem_sandbox.hpp"
 #include "test_support.hpp"
+#include "tool_registry.hpp"
+#include "workspace_tools.hpp"
 
 #include <cerrno>
 #include <filesystem>
@@ -7,6 +9,7 @@
 
 #ifdef __linux__
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -65,6 +68,18 @@ TEST(sandbox, denies_filesystem_access_outside_workspace)
         if (allowed_write < 0) ::_exit(16);
         ::close(allowed_write);
 
+        const int workspace_fd = ::open(workspace.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (workspace_fd < 0) ::_exit(21);
+        if (::renameat(workspace_fd, "created.txt", workspace_fd, "renamed.txt") != 0) ::_exit(22);
+        if (::linkat(workspace_fd, "renamed.txt", workspace_fd, "linked.txt", 0) != 0) ::_exit(23);
+        if (::mkdirat(workspace_fd, "created-dir", 0700) != 0) ::_exit(24);
+
+        if (::symlinkat("inside.txt", workspace_fd, "link") == 0) ::_exit(25);
+        if (errno != EACCES && errno != EPERM) ::_exit(26);
+        if (::mkfifoat(workspace_fd, "pipe", 0600) == 0) ::_exit(27);
+        if (errno != EACCES && errno != EPERM) ::_exit(28);
+        ::close(workspace_fd);
+
         const int denied_system_tree = ::open("/usr", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
         if (denied_system_tree >= 0) {
             ::close(denied_system_tree);
@@ -79,6 +94,20 @@ TEST(sandbox, denies_filesystem_access_outside_workspace)
                 ::_exit(19);
             }
             if (errno != EACCES && errno != EPERM) ::_exit(20);
+        }
+
+        try {
+            ToolRegistry registry;
+            register_workspace_tools(registry, workspace);
+            registry.execute("write_file", R"({"path":"landlock.txt","content":"confined"})");
+            if (registry.execute("read_file", R"({"path":"landlock.txt"})") != "confined") {
+                ::_exit(29);
+            }
+            if (registry.execute("search_files", R"({"query":"confined"})").empty()) {
+                ::_exit(30);
+            }
+        } catch (...) {
+            ::_exit(31);
         }
         ::_exit(0);
     }

@@ -88,17 +88,18 @@ directement (voir Architecture) sans relister les .cpp.
 > normatives de gouvernance restent dans ce fichier.
 - Confinement filesystem du processus (Linux) : avant le REPL, l'application
   impose un ruleset Landlock en refusant le démarrage si le noyau ou les
-  permissions ne permettent pas son activation. L'agent peut lire et écrire
-  dans le workspace, qui doit être un vrai répertoire et non un lien symbolique ;
-  les fichiers du workspace ne sont pas exécutables par l'agent ; la règle est
-  attachée à un descripteur ouvert avec `O_NOFOLLOW`. Hors du
-  workspace, la lecture est autorisée sous `/etc/ssl/certs` et
-  `/usr/share/ca-certificates`, ainsi que sur `/etc/ssl/openssl.cnf`,
-  `/etc/hosts`, `/etc/resolv.conf` et `/etc/nsswitch.conf` lorsqu'ils existent.
-  Le répertoire `/etc/ssl/private` reste refusé. Les autres
-  chemins, dont `/usr`, `/lib` et `/lib64`, restent refusés après le démarrage
-  du processus. Ce contrôle
-  s'applique au processus de l'agent, pas aux autres processus du même compte.
+  permissions ne permettent pas son activation. Dans le workspace, la règle
+  Landlock accorde uniquement lecture, écriture, suppression de fichiers et
+  création de fichiers réguliers/répertoires ; elle refuse l'exécution, les
+  liens symboliques et les fichiers spéciaux. Le workspace doit être un vrai
+  répertoire, pas un lien symbolique ; la règle est attachée à un descripteur
+  ouvert avec `O_NOFOLLOW`. Hors du workspace, la lecture est autorisée sous
+  `/etc/ssl/certs` et `/usr/share/ca-certificates`, ainsi que sur
+  `/etc/ssl/openssl.cnf`, `/etc/hosts`, `/etc/resolv.conf` et
+  `/etc/nsswitch.conf` lorsqu'ils existent. `/etc/ssl/private` reste refusé ;
+  les autres chemins, dont `/usr`, `/lib` et `/lib64`, sont refusés après le
+  démarrage du processus. Cette politique s'applique à l'agent, pas aux autres
+  processus du même compte.
   Les outils de lecture refusent les fichiers dont le compteur de liens
   physiques indique plusieurs noms. Cette vérification ne protège pas contre
   un autre processus du même compte qui modifie le workspace simultanément.

@@ -15,6 +15,12 @@ set -a; source .env; set +a
 ./build/agent
 
 ## Test
+
+> Les **118 déclarations de cas** et les **7 groupes CTest Linux** ont été
+> vérifiés par lecture du dépôt au SHA `465faae586c8f268d276597df05724431c750085`. Les **403 assertions et
+> 7/7 réussis** sont des résultats historiques **rapportés**, non rejoués
+> pendant M4. Voir [PROJECT_CONTEXT.md](docs/context/PROJECT_CONTEXT.md).
+
 Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
 `test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
 (`mock_http_server.*`). 118 cas / 403 assertions répartis en 7 groupes : `sse`,
@@ -33,7 +39,7 @@ directement (voir Architecture) sans relister les .cpp.
 - C++20
 - RAII partout, pas de raw pointers sauf nécessité justifiée
 - En-têtes dans include/, implémentation dans src/
-- Un fichier .cpp par responsabilité (client HTTP, parsing JSON, boucle agent)
+- Un fichier .cpp par responsabilité (client HTTP, parsing SSE, boucle agent, sandbox)
 - Pas de dépendances lourdes : libcurl + nlohmann/json suffisent
 
 ## Architecture
@@ -43,7 +49,11 @@ directement (voir Architecture) sans relister les .cpp.
   - prompt_reader.hpp/.cpp  -> lecture d'une interaction REPL (mode simple ou
                                bloc multiligne), flux d'entrée/sortie injectés
   - tool_registry.hpp/.cpp  -> registre d'outils
-  - workspace_tools.hpp/.cpp -> outils sandboxés dans workspace/
+  - workspace_tools.hpp/.cpp -> registre et lecture des outils sandboxés
+  - filesystem_sandbox.hpp/.cpp -> confinement Landlock avant REPL
+  - workspace_search.hpp/.cpp -> parcours et recherche du workspace
+  - workspace_write.hpp/.cpp -> publication et vérifications des écritures
+  - sse_parser.hpp/.cpp -> parsing des événements SSE
   Son include path (`include/`) est PUBLIC, et elle expose transitivement
   CURL::libcurl et nlohmann_json::nlohmann_json (les en-têtes publics
   incluent déjà `<nlohmann/json.hpp>`).
@@ -67,7 +77,15 @@ directement (voir Architecture) sans relister les .cpp.
 - .env.example committé comme documentation des variables attendues
 - Le code lit uniquement via std::getenv(), jamais de valeur en dur
 
-## Décisions d'architecture (v1)
+## Architecture en vigueur — invariants et révisions
+
+> Les décisions initiales « v1 » sont des **faits historiques**, révisés lors
+> de l'implémentation du streaming, du tool-calling et de la troncature par tours.
+> Leurs versions d'origine et leurs révisions figurent dans
+> [PROJECT_HISTORY.md](docs/history/PROJECT_HISTORY.md).
+> L'état technique daté et ses limites sont consolidés dans
+> [PROJECT_CONTEXT.md](docs/context/PROJECT_CONTEXT.md) ; les consignes
+> normatives de gouvernance restent dans ce fichier.
 - Confinement filesystem du processus (Linux) : avant le REPL, l'application
   impose un ruleset Landlock en refusant le démarrage si le noyau ou les
   permissions ne permettent pas son activation. L'agent peut lire et écrire
@@ -120,9 +138,10 @@ directement (voir Architecture) sans relister les .cpp.
   `CURLOPT_CONNECTTIMEOUT` (établissement de connexion, borné à `min(timeout,
   10 s)`). Un timeout (`CURLE_OPERATION_TIMEDOUT`) produit un message distinct
   (« HTTP POST timed out after Ns »), séparé des autres échecs curl.
-- Historique de conversation : borné aux 20 derniers messages pour éviter
-  de dépasser la fenêtre de contexte du modèle local. Troncature simple
-  (drop des plus anciens), pas de résumé.
+- Historique de conversation : limite de référence de 20 messages (constante
+  `max_history_messages`). La troncature retire les tours complets les plus
+  anciens, sans résumé. Le dernier tour peut dépasser le plafond : voir
+  la limitation ci-dessous et `src/agent.cpp::trim_history()`.
 - Limitation connue — tour surdimensionné : trim_history() ne retire jamais
   le dernier tour utilisateur, même s'il dépasse à lui seul
   max_history_messages (20). La troncature raisonne en tours complets (un
@@ -147,7 +166,12 @@ directement (voir Architecture) sans relister les .cpp.
   afficher un message clair mentionnant LLM_BASE_URL plutôt que de laisser
   remonter une exception brute.
 
-## Current state
+## Current state (observation documentaire au SHA `465faae586c8f268d276597df05724431c750085`)
+
+> Ce résumé n'est pas un rapport de test. La lecture du code au SHA indiqué
+> confirme les fonctionnalités ci-dessous ; les succès CTest mentionnés dans
+> la section `Test` sont **rapportés** par les travaux antérieurs, non
+> réexécutés dans M4.
 REPL minimal fonctionnel : lecture utilisateur, appel chat completions
 OpenAI-compatible en streaming (affichage progressif), historique borné et
 tool-calling actif avec quatre outils sandboxés (list_files, read_file,

@@ -119,14 +119,12 @@ Les outils ne sont **pas** invocables manuellement depuis le REPL : c'est le
 LLM qui décide de les appeler pendant qu'il compose sa réponse.
 
 `write_file` prépare et vérifie le contenu avant publication. Sous Linux,
-une création avec `overwrite: false` part d'un fichier temporaire anonyme
+une création part d'un fichier temporaire anonyme
 (`O_TMPFILE`), publié atomiquement sans écrasement avec `linkat`; le système
 de fichiers doit prendre en charge ce mécanisme. Un échec d'ouverture est
-signalé, sans repli vers un fichier temporaire nommé. Avec `overwrite: true`,
-la publication utilise encore un fichier temporaire nommé puis `renameat`.
-La vérification de l'identité après publication peut détecter une substitution,
-mais ne l'empêche pas et ne garantit pas l'état ultérieur si un autre processus
-peut modifier le workspace. L'écriture n'est pas garantie durable après une
+signalé, sans repli vers un fichier temporaire nommé. L'écrasement est
+temporairement désactivé jusqu'à ce que l'accès au workspace utilise une
+identité système isolée. L'écriture n'est pas garantie durable après une
 coupure de courant ou un crash (pas de `fsync`).
 
 ## 5. Outils disponibles
@@ -170,19 +168,11 @@ relativement à des descripteurs de répertoire et ne suit aucun lien
 symbolique. `read_file` ouvre aussi les composants du chemin résolu sans
 suivre de liens et lit depuis le même descripteur. `list_files` parcourt
 également les répertoires par descripteurs et exclut les liens symboliques.
-`write_file` utilise aussi des descripteurs de répertoire et une publication
-sans écrasement si `overwrite` est faux. Un processus pouvant modifier le
-workspace peut toutefois déplacer un répertoire ouvert ou remplacer un
-fichier temporaire avant publication ; la mise en garde ci-dessus reste
-applicable.
-
-Un essai concurrent a confirmé qu'un lien symbolique peut être publié à la
-place du fichier attendu par `write_file` lorsque le nom temporaire est
-remplacé avant publication. La relecture du descripteur temporaire ne garantit
-donc pas que le même fichier sera publié. Après publication, l'outil compare
-l'identité du fichier publié à celle du temporaire vérifié et signale une
-erreur si elles diffèrent. Cette détection reste sujette à une course et, en
-cas d'erreur, la cible peut déjà avoir été modifiée.
+`write_file` utilise des descripteurs de répertoire et publie les créations
+depuis un inode temporaire anonyme, sans nom temporaire substituable. Un
+processus du même compte qui peut modifier le workspace reste hors de la
+barrière Landlock et peut modifier les fichiers indépendamment de l'agent; le
+workspace n'est donc pas une frontière de sécurité contre ce processus.
 
 **Liens physiques — historique et état courant à distinguer :** un essai
 historique a montré qu'un montage isolé du workspace sous `bwrap` ne
@@ -245,25 +235,25 @@ suffit de les déposer dans ce dossier.
 
 ### write_file
 
-- **Ce qu'il fait** : écrit un fichier texte dans le workspace à partir d'un
+- **Ce qu'il fait** : crée un fichier texte dans le workspace à partir d'un
   chemin relatif, en créant au besoin les répertoires parents manquants. Le
-  contenu remplace intégralement le fichier (création ou remplacement
-  complet, pas d'ajout à la fin). Retourne une confirmation du type
-  `wrote 42 bytes to notes/a.txt (created new file)` — ou
-  `(overwrote existing file)` en cas de remplacement.
+  fichier doit ne pas déjà exister; modifier le contenu d'un fichier existant
+  n'est pas pris en charge. Retourne une confirmation du type
+  `wrote 42 bytes to notes/a.txt (created new file)`.
 - **Quand** : quand le modèle doit produire un fichier (notes, code, rapport)
   dans le workspace. C'est une écriture **autonome** : aucune confirmation
   humaine n'est demandée dans le REPL.
-- **Garde-fou overwrite** : `overwrite` est un booléen **optionnel, défaut
-  `false`**. Si le fichier cible existe déjà et que `overwrite` n'est pas
-  explicitement `true`, l'écriture est refusée et l'outil renvoie au modèle :
+- **Écrasement désactivé** : le schéma de l'outil n'expose plus le paramètre
+  `overwrite`. Tout appel direct avec `overwrite: true` est refusé. Si la cible
+  existe déjà, l'outil renvoie au modèle :
 
   ```
-  tool error: file already exists: <chemin> (pass overwrite: true to replace it)
+  tool error: file already exists: <chemin> (overwriting is disabled until workspace access uses an isolated system identity)
   ```
 
-  Le modèle doit donc passer `overwrite: true` pour confirmer un écrasement
-  volontaire. Sans cela, aucun fichier existant n'est modifié.
+  Le refus est temporaire, jusqu'à une architecture qui isole l'identité
+  système ayant accès au workspace. Aucun fichier existant n'est modifié par
+  l'outil.
 - **Contrainte** : `path` et `content` sont obligatoires (`path` non vide,
   relatif, sans `..`). Si le chemin résolu est un répertoire existant,
   l'écriture est refusée (`cannot write file: path is an existing
@@ -276,11 +266,9 @@ suffit de les déposer dans ce dossier.
   et `..`. Les parents sont ouverts sans suivre de lien. Les déplacements
   concurrents de répertoires et substitutions du temporaire restent une
   limite de sécurité.
-- **Écriture atomique et hard links** : l'écriture passe par un fichier
-  temporaire du même répertoire puis une publication par `linkat()` sans
-  écrasement ou `renameat()` avec écrasement. Conséquence assumée : si
-  le fichier écrasé avait des hard links, le lien est rompu — le chemin écrit
-  pointe vers le nouvel inode et les autres liens gardent l'ancien contenu.
+- **Publication atomique** : le contenu est écrit dans un inode temporaire
+  anonyme, puis publié sans écrasement par `linkat()`. Un chemin déjà existant
+  est refusé.
 
 ## 6. Limites connues
 

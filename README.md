@@ -38,7 +38,7 @@ cmake --build build-tests
 ctest --test-dir build-tests --output-on-failure
 ```
 
-Les tests sont désactivés par défaut. Le code versionné contient **118 déclarations `TEST(...)`** réparties en **7 groupes CTest sous Linux**. `AGENTS.md` et les rapports de la PR #5 mentionnent **403 assertions et 7/7 groupes réussis**, **résultats rapportés, non rejoués dans la réconciliation documentaire M4**.
+Les tests sont désactivés par défaut. Le code versionné contient **118 déclarations `TEST(...)`** réparties en **7 groupes CTest sous Linux**. Le relevé historique de M4 indiquait **403 assertions**; le 2026-11-05, après le correctif de désactivation de l'écrasement, le harnais a été relancé : **118 cas / 407 assertions réussis**, CTest **7/7 groupes**.
 
 ## Documentation
 

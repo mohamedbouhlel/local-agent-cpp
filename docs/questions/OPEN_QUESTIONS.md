@@ -99,8 +99,8 @@ envoyé au modèle.
 **Ce qui trancherait** : [`ROADMAP.md`](../roadmap/ROADMAP.md) P4.
 
 ### Q12. `write_file` sans mode ajout : voulu ?
-`[FAIT]` `write_file` remplace intégralement le contenu ; aucun mode
-`append`.
+`[FAIT]` `write_file` crée des fichiers absents ; les fichiers existants ne
+peuvent pas être modifiés. Aucun mode `append` n'existe.
 **Pourquoi ça compte** : le message d'erreur de dépassement de taille invite à
 « écrire en plusieurs fois », mais l'outil ne permet pas d'écrire
 incrémentalement dans un même fichier — seule la réécriture complète par
@@ -110,7 +110,7 @@ message d'erreur) — voir [`ROADMAP.md`](../roadmap/ROADMAP.md) P14.
 
 ### Q13. Langue des messages d'outil non tranchée.
 `[FAIT]` UI française (`main.cpp`) ; erreurs d'outil anglaises
-(`workspace_tools.cpp`, ex. `file does not exist`, `pass overwrite: true`),
+(`workspace_tools.cpp`, ex. `file does not exist`, `overwriting is disabled`),
 renvoyées au modèle et donc potentiellement à l'utilisateur.
 **Pourquoi ça compte** : incohérence visible ; et les instructions envoyées au
 modèle sont en anglais alors que les énoncés utilisateur sont en français.
@@ -161,28 +161,18 @@ dans le dépôt.
 **Ce qui trancherait** : une note de calibrage, ou des tests de charge.
 
 ### Q20. Quelle garantie offrir pour `write_file` avec `overwrite: true` ?
-**[DÉCISION DU MAINTENEUR REQUISE]** La création sans écrasement utilise
-`O_TMPFILE` et `linkat(AT_EMPTY_PATH)`. Le remplacement emploie encore un
-fichier temporaire nommé puis `renameat`. Le descripteur est vérifié avant la
-publication et l'identité publiée après, mais un processus pouvant écrire dans
-le répertoire peut substituer le nom temporaire avant `renameat`; la
-vérification peut alors signaler l'écart après que la cible a déjà changé.
-**Reproduction locale observée** : un watcher a remplacé une fois le temporaire
-pendant `write_workspace(..., overwrite=true)` avec un contenu témoin. L'appel
-a levé `published file differs from verified temporary file`, tandis que la
-cible contenait déjà `attacker-controlled`. Le probe était un programme
-ponctuel sous `/tmp`, compilé avec `src/workspace_write.cpp`; il n'est pas un
-test versionné ni une preuve d'exhaustivité.
+**[RÉSOLU — DÉCISION DU MAINTENEUR : CHOIX A]** `overwrite: true` est
+temporairement refusé jusqu'à ce que l'accès au workspace utilise une identité
+système isolée. Le schéma de `write_file` n'expose plus le champ `overwrite`,
+et le handler rejette explicitement un appel direct qui le demande.
 
-Une publication atomique de remplacement requiert actuellement un nom source
-dans le répertoire. Dans le modèle actuel, où d'autres processus du même
-compte peuvent modifier le workspace, le code ne peut pas garantir que ce nom
-reste lié au descripteur vérifié. Cela ne constitue pas une frontière de
-sécurité contre ces processus.
+**Motif observé** : une reproduction locale a substitué le fichier temporaire
+pendant `write_workspace(..., overwrite=true)`. L'appel a signalé
+`published file differs from verified temporary file`, mais la cible contenait
+déjà `attacker-controlled`. Le probe ponctuel était sous `/tmp`, non versionné;
+il établit une reproduction, pas une garantie exhaustive.
 
-**Choix à trancher :** (A) refuser temporairement `overwrite: true` dans
-l'agent; ou (B) conserver le comportement et assumer explicitement cette
-limite dans le modèle de menace. Une isolation par identité système distincte
-est une piste d'architecture séparée, pas une garantie fournie par ce patch.
-Le choix affecte le comportement visible et doit être approuvé avant
-implémentation.
+Les créations de fichiers absents restent publiées depuis `O_TMPFILE` via
+`linkat(AT_EMPTY_PATH)`. Cette décision n'isole pas les processus du même
+compte : elle retire à l'agent la capacité de remplacer un fichier existant
+jusqu'à une évolution de l'isolation système.

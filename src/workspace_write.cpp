@@ -38,7 +38,8 @@ private:
 
 std::string exists_error(const std::string& relative)
 {
-    return "file already exists: " + relative + " (pass overwrite: true to replace it)";
+    return "file already exists: " + relative
+        + " (overwriting is disabled until workspace access uses an isolated system identity)";
 }
 } // namespace
 
@@ -56,7 +57,7 @@ void workspace_write_internal::verify_published_file(int directory_fd, const std
 
 std::string write_workspace(const std::filesystem::path& root,
                             const std::filesystem::path& relative,
-                            const std::string& content, bool overwrite)
+                            const std::string& content)
 {
     if (relative.empty() || relative.is_absolute() || relative.filename().empty()
         || relative.filename() == "." || relative.native().find('\0') != std::string::npos) {
@@ -87,19 +88,17 @@ std::string write_workspace(const std::filesystem::path& root,
     if (!exists && errno != ENOENT) throw std::runtime_error("failed to inspect target file");
     if (exists && S_ISDIR(target.st_mode)) throw std::runtime_error("cannot write file: path is an existing directory: " + display);
     if (exists && !S_ISREG(target.st_mode)) throw std::runtime_error("workspace path is not a regular file");
-    if (exists && !overwrite) throw std::runtime_error(exists_error(display));
+    if (exists) throw std::runtime_error(exists_error(display));
 
     static std::atomic<unsigned long> counter{0};
     std::string temporary;
     bool anonymous_temporary = false;
     int raw = -1;
 #ifdef __linux__
-    if (!overwrite) {
-        raw = ::openat(dir.get(), ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0666);
-        if (raw < 0)
-            throw std::runtime_error("failed to open file for writing: anonymous temporary file unavailable");
-        anonymous_temporary = true;
-    }
+    raw = ::openat(dir.get(), ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0666);
+    if (raw < 0)
+        throw std::runtime_error("failed to open file for writing: anonymous temporary file unavailable");
+    anonymous_temporary = true;
 #endif
     if (raw < 0) {
         for (int attempt = 0; attempt < 100; ++attempt) {
@@ -119,8 +118,6 @@ std::string write_workspace(const std::filesystem::path& root,
         if (count <= 0) throw std::runtime_error("failed to write file content");
         written += static_cast<std::size_t>(count);
     }
-    if (exists && ::fchmod(file.get(), target.st_mode & 07777) != 0)
-        throw std::runtime_error("failed to apply existing file permissions");
     if (::lseek(file.get(), 0, SEEK_SET) < 0) throw std::runtime_error("post-write verification failed");
     std::string actual(content.size(), '\0');
     std::size_t read_bytes = 0;
@@ -134,11 +131,7 @@ std::string write_workspace(const std::filesystem::path& root,
     if (::fstat(file.get(), &written_stat) != 0 || written_stat.st_size != static_cast<off_t>(content.size()) || actual != content)
         throw std::runtime_error("post-write verification failed");
 
-    if (overwrite) {
-        if (::renameat(dir.get(), temporary.c_str(), dir.get(), filename.c_str()) != 0)
-            throw std::runtime_error("failed to replace target file");
-        cleanup->release();
-    } else if (anonymous_temporary) {
+    if (anonymous_temporary) {
         if (::linkat(file.get(), "", dir.get(), filename.c_str(), AT_EMPTY_PATH) != 0) {
             if (errno == EEXIST) throw std::runtime_error(exists_error(display));
             throw std::runtime_error("failed to publish anonymous temporary file");
@@ -151,5 +144,5 @@ std::string write_workspace(const std::filesystem::path& root,
     }
     workspace_write_internal::verify_published_file(dir.get(), filename, file.get());
     return "wrote " + std::to_string(content.size()) + " bytes to " + display
-        + (exists ? " (overwrote existing file)" : " (created new file)");
+        + " (created new file)";
 }

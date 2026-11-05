@@ -164,9 +164,13 @@ std::string search_files(const std::filesystem::path& root, const nlohmann::json
 
 std::string write_file(const std::filesystem::path& root, const nlohmann::json& args)
 {
+    const auto overwrite = optional_bool_arg(args, "overwrite", false);
+    if (overwrite) {
+        throw std::invalid_argument(
+            "overwrite is temporarily disabled until workspace access uses an isolated system identity");
+    }
     const auto path = sandbox_path(root, require_string_arg(args, "path"));
     const auto content = require_string_arg(args, "content");
-    const auto overwrite = optional_bool_arg(args, "overwrite", false);
     if (content.size() > max_write_chars) {
         throw std::runtime_error(
             "content is " + std::to_string(content.size())
@@ -174,7 +178,7 @@ std::string write_file(const std::filesystem::path& root, const nlohmann::json& 
             + std::to_string(max_write_chars)
             + "; write the file in smaller parts instead");
     }
-    return write_workspace(root, path.lexically_relative(root), content, overwrite);
+    return write_workspace(root, path.lexically_relative(root), content);
 }
 
 nlohmann::json object_schema(nlohmann::json properties, nlohmann::json required = nlohmann::json::array())
@@ -226,16 +230,11 @@ void register_workspace_tools(ToolRegistry& registry, std::filesystem::path work
 
     registry.register_tool({
         "write_file",
-        "Write a text file inside the workspace, creating parent directories as needed.",
+        "Create a text file inside the workspace, creating parent directories as needed. Existing files cannot be overwritten.",
         object_schema(
             {
                 {"path", {{"type", "string"}, {"description", "Relative path inside workspace."}}},
                 {"content", {{"type", "string"}, {"description", "Full content to write to the file."}}},
-                {"overwrite",
-                 {{"type", "boolean"},
-                  {"description",
-                   "Set to true to replace a file that already exists. Defaults to false: "
-                   "writing over an existing file is rejected until this is explicitly true."}}},
             },
             {"path", "content"}),
         [root](nlohmann::json args) {

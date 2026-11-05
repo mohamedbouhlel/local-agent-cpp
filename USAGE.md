@@ -102,6 +102,22 @@ chemins ou des liens symboliques peut contourner cette vérification. Ne pas
 utiliser ce mécanisme comme frontière de sécurité face à un processus pouvant
 modifier le workspace simultanément.
 
+Sous Linux, le processus active également un confinement filesystem Landlock
+avant le REPL. Il autorise toutes les opérations dans le workspace. En dehors,
+la lecture est autorisée sous `/usr`, `/lib`, `/lib64`, `/etc/ssl`, ainsi que
+sur `/etc/hosts`, `/etc/resolv.conf`, `/etc/nsswitch.conf` et
+`/etc/ld.so.cache` lorsqu'ils existent ; ces règles couvrent les arbres
+indiqués, pas uniquement les fichiers strictement nécessaires. Les autres
+accès filesystem sont refusés. Si Landlock est absent ou ne peut pas être
+activé, l'agent refuse de démarrer. Sur macOS et les autres systèmes, le
+binaire refuse aussi le démarrage plutôt que de fonctionner sans cette
+barrière. Landlock ne confine que le processus agent, pas les autres processus
+du même compte. `read_file` et `search_files` refusent les fichiers dont le
+compteur de liens physiques indique plusieurs noms. Un autre processus du même
+compte qui modifie le workspace simultanément reste hors de la protection de
+Landlock. Landlock ne contrôle pas les accès réseau ; la connexion au serveur
+LLM reste nécessaire au fonctionnement de l'agent.
+
 Une fuite de `search_files` par remplacement concurrent d'un lien a été
 reproduite puis corrigée pour ce scénario : la recherche ouvre les entrées
 relativement à des descripteurs de répertoire et ne suit aucun lien

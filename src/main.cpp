@@ -1,4 +1,5 @@
 #include "agent.hpp"
+#include "filesystem_sandbox.hpp"
 #include "http_client.hpp"
 #include "prompt_reader.hpp"
 #include "tool_registry.hpp"
@@ -61,6 +62,12 @@ int main()
     const auto workspace_root = std::filesystem::absolute("workspace");
     std::filesystem::create_directories(workspace_root);
     register_workspace_tools(tools, workspace_root);
+    try {
+        apply_filesystem_sandbox(std::filesystem::canonical(workspace_root));
+    } catch (const std::exception& error) {
+        std::cerr << "Filesystem sandbox unavailable: " << error.what() << '\n';
+        return 1;
+    }
 
     Agent agent(tools, config);
 

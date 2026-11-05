@@ -51,6 +51,13 @@ TEST(sandbox, denies_filesystem_access_outside_workspace)
                                          O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
         if (allowed_write < 0) ::_exit(16);
         ::close(allowed_write);
+
+        const int denied_system_tree = ::open("/usr", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (denied_system_tree >= 0) {
+            ::close(denied_system_tree);
+            ::_exit(17);
+        }
+        if (errno != EACCES && errno != EPERM) ::_exit(18);
         ::_exit(0);
     }
 

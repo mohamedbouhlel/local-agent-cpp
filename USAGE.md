@@ -104,11 +104,11 @@ modifier le workspace simultanément.
 
 Sous Linux, le processus active également un confinement filesystem Landlock
 avant le REPL. Il autorise toutes les opérations dans le workspace. En dehors,
-la lecture est autorisée sous `/usr`, `/lib`, `/lib64`, `/etc/ssl`, ainsi que
-sur `/etc/hosts`, `/etc/resolv.conf`, `/etc/nsswitch.conf` et
-`/etc/ld.so.cache` lorsqu'ils existent ; ces règles couvrent les arbres
-indiqués, pas uniquement les fichiers strictement nécessaires. Les autres
-accès filesystem sont refusés. Si Landlock est absent ou ne peut pas être
+la lecture est autorisée sous `/etc/ssl` et sur `/etc/hosts`,
+`/etc/resolv.conf` et `/etc/nsswitch.conf` lorsqu'ils existent. Les autres
+accès filesystem, notamment sous `/usr`, `/lib` et `/lib64`, sont refusés après
+le démarrage du processus (ses bibliothèques sont chargées avant l'application
+du ruleset). Si Landlock est absent ou ne peut pas être
 activé, l'agent refuse de démarrer. Sur macOS et les autres systèmes, le
 binaire refuse aussi le démarrage plutôt que de fonctionner sans cette
 barrière. Landlock ne confine que le processus agent, pas les autres processus

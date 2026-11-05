@@ -73,10 +73,10 @@ directement (voir Architecture) sans relister les .cpp.
   permissions ne permettent pas son activation. L'agent peut lire et écrire
   dans le workspace, qui doit être un vrai répertoire et non un lien symbolique ;
   la règle est attachée à un descripteur ouvert avec `O_NOFOLLOW`. Hors du
-  workspace, les seuls chemins autorisés en lecture
-  sont `/usr`, `/lib`, `/lib64`, `/etc/ssl` et certains fichiers de config
-  réseau/chargeur (s'ils existent). Ces règles accordent la lecture sur ces
-  arbres, pas seulement sur des fichiers individuels nécessaires. Ce contrôle
+  workspace, la lecture est autorisée sous `/etc/ssl` et sur `/etc/hosts`,
+  `/etc/resolv.conf` et `/etc/nsswitch.conf` lorsqu'ils existent. Les autres
+  chemins, dont `/usr`, `/lib` et `/lib64`, restent refusés après le démarrage
+  du processus. Ce contrôle
   s'applique au processus de l'agent, pas aux autres processus du même compte.
   Les outils de lecture refusent les fichiers dont le compteur de liens
   physiques indique plusieurs noms. Cette vérification ne protège pas contre

@@ -11,6 +11,7 @@ add_executable(agent_tests
   workspace_tools_test.cpp
   filesystem_sandbox_test.cpp
   http_client_test.cpp
+  agent_events_test.cpp
   agent_streaming_test.cpp
   agent_e2e_test.cpp
   prompt_reader_test.cpp

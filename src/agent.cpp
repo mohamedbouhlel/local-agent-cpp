@@ -6,15 +6,21 @@
 #include <nlohmann/json.hpp>
 
 #include <cstddef>
+#include <atomic>
+#include <chrono>
 #include <map>
+#include <exception>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace {
 
 constexpr std::size_t max_history_messages = 20;
 constexpr int max_tool_iterations = 5;
+
+std::atomic<std::uint64_t> next_session_id{1};
 
 nlohmann::json messages_to_json(const std::vector<Message>& messages)
 {
@@ -129,7 +135,7 @@ void collect_finish_reason(const nlohmann::json& event, std::string& finish_reas
 
 void apply_stream_delta(StreamingMessageAccumulator& accumulator,
                         const nlohmann::json& event,
-                        const AgentCallbacks& callbacks)
+                        const std::function<void(const std::string&)>& on_text_delta)
 {
     if (!event.contains("choices") || !event.at("choices").is_array() || event.at("choices").empty()) {
         return;
@@ -145,9 +151,7 @@ void apply_stream_delta(StreamingMessageAccumulator& accumulator,
         auto fragment = delta.at("content").get<std::string>();
         if (!fragment.empty()) {
             accumulator.content += fragment;
-            if (callbacks.on_text_delta) {
-                callbacks.on_text_delta(fragment);
-            }
+            on_text_delta(fragment);
         }
     }
 
@@ -191,142 +195,299 @@ nlohmann::json build_assistant_message(const StreamingMessageAccumulator& accumu
 
 } // namespace
 
+agent::ui::EventType agent::ui::AgentEvent::type() const noexcept
+{
+    return std::visit(
+        [](const auto& value) noexcept {
+            using Payload = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<Payload, agent::ui::RequestStarted>) {
+                return agent::ui::EventType::RequestStarted;
+            } else if constexpr (std::is_same_v<Payload, agent::ui::HttpRequestStarted>) {
+                return agent::ui::EventType::HttpRequestStarted;
+            } else if constexpr (std::is_same_v<Payload, agent::ui::TextDelta>) {
+                return agent::ui::EventType::TextDelta;
+            } else if constexpr (std::is_same_v<Payload, agent::ui::ToolStarted>) {
+                return agent::ui::EventType::ToolStarted;
+            } else if constexpr (std::is_same_v<Payload, agent::ui::ToolSucceeded>) {
+                return agent::ui::EventType::ToolSucceeded;
+            } else if constexpr (std::is_same_v<Payload, agent::ui::ToolFailed>) {
+                return agent::ui::EventType::ToolFailed;
+            } else if constexpr (std::is_same_v<Payload, agent::ui::HttpRequestFinished>) {
+                return agent::ui::EventType::HttpRequestFinished;
+            } else if constexpr (std::is_same_v<Payload, agent::ui::RequestFailed>) {
+                return agent::ui::EventType::RequestFailed;
+            } else {
+                return agent::ui::EventType::TurnFinished;
+            }
+        },
+        payload);
+}
+
 Agent::Agent(ToolRegistry& tools, AgentConfig config)
+    : Agent(tools, std::move(config), nullptr)
+{
+}
+
+Agent::Agent(ToolRegistry& tools,
+             AgentConfig config,
+             std::shared_ptr<agent::ui::EventObserver> observer)
     : tools_(tools)
     , config_(std::move(config))
+    , observer_(std::move(observer))
+    , observer_enabled_(static_cast<bool>(observer_))
+    , session_id_{next_session_id.fetch_add(1, std::memory_order_relaxed)}
+    , session_started_at_(std::chrono::steady_clock::now())
 {
 }
 
 std::string Agent::send(const std::string& input, const AgentCallbacks& callbacks)
 {
-    append_message({make_user_message(input)});
+    using namespace agent::ui;
+    const TurnId turn_id{next_turn_id_++};
+    std::uint32_t request_count = 0;
+    std::uint32_t tools_succeeded = 0;
+    std::uint32_t tools_failed = 0;
+    bool legacy_callback_failed = false;
+    bool turn_finished = false;
+    bool iteration_limit_reached = false;
+    std::optional<RequestId> current_request_id;
 
-    HttpClient::Headers headers = {
-        "Content-Type: application/json",
+    const auto finish_turn = [&](TurnOutcome outcome) noexcept {
+        if (turn_finished) {
+            return;
+        }
+        turn_finished = true;
+        publish_event(
+            [&] { return EventPayload{TurnFinished{outcome, request_count, tools_succeeded, tools_failed}}; },
+            turn_id);
     };
-    if (!config_.api_key.empty()) {
-        headers.push_back("Authorization: Bearer " + config_.api_key);
-    }
 
-    const HttpClient client;
-    for (int iteration = 0; iteration < max_tool_iterations; ++iteration) {
-        trim_history();
+    try {
+        publish_event([] { return EventPayload{RequestStarted{}}; }, turn_id);
+        append_message({make_user_message(input)});
 
-        const auto payload = make_payload(config_, tools_, history_);
-
-        SseParser parser;
-        StreamingMessageAccumulator accumulator;
-        bool saw_done = false;
-        std::string finish_reason;
-
-        // Consomme un payload SSE déjà délimité.
-        auto consume = [&accumulator, &callbacks, &finish_reason, &saw_done](const std::string& data) {
-            // "[DONE]" n'a pas de sens pour le parser SSE : on le reconnaît ici,
-            // côté OpenAI, et il constitue la preuve de complétude du flux.
-            if (data == "[DONE]") {
-                saw_done = true;
-                return;
-            }
-
-            nlohmann::json event;
-            try {
-                event = nlohmann::json::parse(data);
-            } catch (const nlohmann::json::exception&) {
-                // Fragment SSE isolé malformé : ignoré sans interrompre le
-                // reste du flux.
-                return;
-            }
-
-            collect_finish_reason(event, finish_reason);
-            apply_stream_delta(accumulator, event, callbacks);
+        HttpClient::Headers headers = {
+            "Content-Type: application/json",
         };
+        if (!config_.api_key.empty()) {
+            headers.push_back("Authorization: Bearer " + config_.api_key);
+        }
 
-        // Invariant : si post_streaming lève (coupure en plein flux, statut
-        // non-2xx, ...), on sort de send() sans avoir rien ajouté à
-        // l'historique pour ce tour — le message assistant partiel n'y figure
-        // jamais. Le message user, lui, a déjà été ajouté avant la boucle.
-        client.post_streaming(
-            config_.base_url,
-            headers,
-            payload.dump(),
-            config_.timeout_seconds,
-            [&parser, &consume](const std::string& chunk) {
+        const HttpClient client;
+        for (int iteration = 0; iteration < max_tool_iterations; ++iteration) {
+            trim_history();
+
+            const auto payload = make_payload(config_, tools_, history_);
+
+            SseParser parser;
+            StreamingMessageAccumulator accumulator;
+            bool saw_done = false;
+            std::string finish_reason;
+            const auto request_body = payload.dump();
+            const RequestId request_id{next_request_id_++};
+            std::uint64_t response_bytes = 0;
+
+            std::function<void(const std::string&)> on_text_delta = [&](const std::string& fragment) {
+                publish_event([&] { return EventPayload{TextDelta{fragment}}; }, turn_id, request_id);
+                if (callbacks.on_text_delta) {
+                    try {
+                        callbacks.on_text_delta(fragment);
+                    } catch (...) {
+                        legacy_callback_failed = true;
+                        throw;
+                    }
+                }
+            };
+
+            // Consomme un payload SSE déjà délimité.
+            auto consume = [&accumulator, &on_text_delta, &finish_reason, &saw_done](const std::string& data) {
+                // "[DONE]" n'a pas de sens pour le parser SSE : on le reconnaît ici,
+                // côté OpenAI, et il constitue la preuve de complétude du flux.
+                if (data == "[DONE]") {
+                    saw_done = true;
+                    return;
+                }
+
+                nlohmann::json event;
+                try {
+                    event = nlohmann::json::parse(data);
+                } catch (const nlohmann::json::exception&) {
+                    // Fragment SSE isolé malformé : ignoré sans interrompre le
+                    // reste du flux.
+                    return;
+                }
+
+                collect_finish_reason(event, finish_reason);
+                apply_stream_delta(accumulator, event, on_text_delta);
+            };
+
+            std::function<void(const std::string&)> on_chunk = [&parser, &consume, &response_bytes](
+                                                                    const std::string& chunk) {
+                response_bytes += static_cast<std::uint64_t>(chunk.size());
                 for (const auto& data : parser.feed(chunk)) {
                     consume(data);
                 }
-            });
+            };
 
-        // Une trame finale non terminée par une ligne vide ne doit pas être
-        // perdue silencieusement (dette §B.2 de docs/roadmap/ROADMAP.md).
-        for (const auto& data : parser.flush()) {
-            consume(data);
-        }
-
-        // Complétude du flux : l'absence du marqueur "[DONE]" signifie que le
-        // flux a été coupé avant la fin. Refuser le tour évite d'accepter une
-        // réponse partielle comme message assistant définitif (écart entre
-        // l'action prétendue par le modèle et l'action réellement reçue).
-        if (!saw_done) {
-            throw AgentError("incomplete model stream: missing [DONE] marker");
-        }
-
-        // Réponse coupée par la limite de tokens du modèle : le message est
-        // partiel, il ne peut pas être traité comme définitif.
-        if (finish_reason == "length") {
-            throw AgentError("model response truncated: finish_reason=length");
-        }
-
-        const auto assistant_message = build_assistant_message(accumulator);
-
-        if (!has_tool_calls(assistant_message)) {
-            const auto content = assistant_message.at("content").get<std::string>();
-            append_message({assistant_message});
-            trim_history();
-            return content;
-        }
-
-        // Validation des tool calls : un tool call sans identifiant ni nom
-        // exploitables produirait un message assistant et un message "tool" non
-        // conformes au protocole OpenAI (id vide). On refuse le tour plutôt que
-        // d'inscrire un échange incohérent dans l'historique.
-        for (const auto& tool_call : assistant_message.at("tool_calls")) {
-            const auto id = tool_call.at("id").get<std::string>();
-            const auto name = tool_call.at("function").at("name").get<std::string>();
-            if (id.empty() || name.empty()) {
-                throw AgentError("malformed tool call from model: empty id or name");
-            }
-        }
-
-        append_message({assistant_message});
-        for (const auto& tool_call : assistant_message.at("tool_calls")) {
-            const auto tool_call_id = tool_call.at("id").get<std::string>();
-            const auto name = tool_call.at("function").at("name").get<std::string>();
-            const auto arguments = tool_call.at("function").value("arguments", "{}");
-
-            if (callbacks.on_tool_call) {
-                callbacks.on_tool_call(name);
-            }
-
-            std::string result;
-            bool ok = true;
+            current_request_id = request_id;
+            ++request_count;
+            publish_event([&] { return EventPayload{HttpRequestStarted{static_cast<std::uint32_t>(iteration + 1)}}; },
+                          turn_id,
+                          request_id);
+            const auto request_started_at = std::chrono::steady_clock::now();
             try {
-                result = tools_.execute(name, arguments);
-            } catch (const std::exception& error) {
-                ok = false;
-                result = std::string("tool error: ") + error.what();
+                // Invariant : le message assistant partiel reste hors historique
+                // si le transport ou un callback legacy échoue.
+                client.post_streaming(
+                    config_.base_url,
+                    headers,
+                    request_body,
+                    config_.timeout_seconds,
+                    on_chunk);
+            } catch (...) {
+                publish_event(
+                    [&] {
+                        return EventPayload{HttpRequestFinished{
+                            std::chrono::steady_clock::now() - request_started_at,
+                            response_bytes,
+                            legacy_callback_failed ? HttpRequestOutcome::legacy_callback_aborted
+                                                   : HttpRequestOutcome::failed}};
+                    },
+                    turn_id,
+                    request_id);
+                throw;
+            }
+            publish_event(
+                [&] {
+                    return EventPayload{HttpRequestFinished{std::chrono::steady_clock::now() - request_started_at,
+                                                            response_bytes,
+                                                            HttpRequestOutcome::completed}};
+                },
+                turn_id,
+                request_id);
+
+            // Une trame finale non terminée par une ligne vide ne doit pas être
+            // perdue silencieusement.
+            for (const auto& data : parser.flush()) {
+                consume(data);
             }
 
-            // Verdict d'exécution observé par le programme, indépendant du texte
-            // du modèle.
-            if (callbacks.on_tool_result) {
-                callbacks.on_tool_result(ToolOutcome{name, ok, result});
+            if (!saw_done) {
+                throw AgentError("incomplete model stream: missing [DONE] marker");
+            }
+            if (finish_reason == "length") {
+                throw AgentError("model response truncated: finish_reason=length");
             }
 
-            append_message({make_tool_message(tool_call_id, result)});
+            const auto assistant_message = build_assistant_message(accumulator);
+
+            if (!has_tool_calls(assistant_message)) {
+                const auto content = assistant_message.at("content").get<std::string>();
+                append_message({assistant_message});
+                trim_history();
+                finish_turn(TurnOutcome::completed);
+                return content;
+            }
+
+            // Valider tous les IDs avant de publier un démarrage d'outil ou de
+            // modifier l'historique assistant/tool.
+            for (const auto& tool_call : assistant_message.at("tool_calls")) {
+                const auto id = tool_call.at("id").get<std::string>();
+                const auto name = tool_call.at("function").at("name").get<std::string>();
+                if (id.empty() || name.empty()) {
+                    throw AgentError("malformed tool call from model: empty id or name");
+                }
+            }
+
+            append_message({assistant_message});
+            for (const auto& tool_call : assistant_message.at("tool_calls")) {
+                const auto tool_call_id = tool_call.at("id").get<std::string>();
+                const auto name = tool_call.at("function").at("name").get<std::string>();
+                const auto arguments = tool_call.at("function").value("arguments", "{}");
+
+                if (callbacks.on_tool_call) {
+                    try {
+                        callbacks.on_tool_call(name);
+                    } catch (...) {
+                        legacy_callback_failed = true;
+                        throw;
+                    }
+                }
+                publish_event([&] { return EventPayload{ToolStarted{name}}; }, turn_id, request_id, tool_call_id);
+
+                const auto tool_started_at = std::chrono::steady_clock::now();
+                std::string result;
+                bool ok = true;
+                try {
+                    result = tools_.execute(name, arguments);
+                } catch (const std::exception& error) {
+                    ok = false;
+                    result = std::string("tool error: ") + error.what();
+                } catch (...) {
+                    // Preserve the historical propagation of non-standard
+                    // handler exceptions while reporting this real execution
+                    // failure to observers.
+                    const auto tool_duration = std::chrono::steady_clock::now() - tool_started_at;
+                    ++tools_failed;
+                    publish_event([&] { return EventPayload{ToolFailed{name, tool_duration}}; },
+                                  turn_id,
+                                  request_id,
+                                  tool_call_id);
+                    throw;
+                }
+                const auto tool_duration = std::chrono::steady_clock::now() - tool_started_at;
+                if (ok) {
+                    ++tools_succeeded;
+                    publish_event([&] { return EventPayload{ToolSucceeded{name, tool_duration}}; },
+                                  turn_id,
+                                  request_id,
+                                  tool_call_id);
+                } else {
+                    ++tools_failed;
+                    publish_event([&] { return EventPayload{ToolFailed{name, tool_duration}}; },
+                                  turn_id,
+                                  request_id,
+                                  tool_call_id);
+                }
+
+                // Le résultat historique reste complet pour les consommateurs
+                // applicatifs; il n'est pas copié dans AgentEvent.
+                if (callbacks.on_tool_result) {
+                    try {
+                        callbacks.on_tool_result(ToolOutcome{name, ok, result});
+                    } catch (...) {
+                        legacy_callback_failed = true;
+                        throw;
+                    }
+                }
+
+                append_message({make_tool_message(tool_call_id, result)});
+            }
         }
-    }
 
-    throw AgentError("tool call loop exceeded maximum iterations");
+        iteration_limit_reached = true;
+        throw AgentError("tool call loop exceeded maximum iterations");
+    } catch (const HttpError&) {
+        const auto category = legacy_callback_failed ? RequestFailureCategory::legacy_callback
+                                                      : RequestFailureCategory::http;
+        publish_event([&] { return EventPayload{RequestFailed{category}}; }, turn_id, current_request_id);
+        finish_turn(TurnOutcome::failed);
+        throw;
+    } catch (const AgentError&) {
+        const auto category = legacy_callback_failed
+                                  ? RequestFailureCategory::legacy_callback
+                                  : (iteration_limit_reached ? RequestFailureCategory::iteration_limit
+                                                             : RequestFailureCategory::protocol);
+        publish_event([&] { return EventPayload{RequestFailed{category}}; }, turn_id, current_request_id);
+        finish_turn(TurnOutcome::failed);
+        throw;
+    } catch (...) {
+        const auto category = legacy_callback_failed ? RequestFailureCategory::legacy_callback
+                                                     : RequestFailureCategory::unexpected;
+        publish_event([&] { return EventPayload{RequestFailed{category}}; }, turn_id, current_request_id);
+        finish_turn(TurnOutcome::failed);
+        throw;
+    }
 }
 
 void Agent::append_message(Message message)

@@ -9,6 +9,7 @@
 #include "test_support.hpp"
 
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -17,6 +18,14 @@ HttpClient::Headers default_headers()
 {
     return {"Content-Type: application/json"};
 }
+
+} // namespace
+
+namespace {
+
+struct StreamingCallbackError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
 
 } // namespace
 
@@ -141,4 +150,32 @@ TEST(http, timeout_distinct_des_autres_echecs_curl)
         client.post_streaming(server.url("/v1/chat/completions"), default_headers(), "{}", 1,
                               [](const std::string&) {}),
         "HTTP POST timed out after 1s");
+}
+
+TEST(http, streaming_callback_exception_rethrown_without_type_or_message_change)
+{
+    MockHttpServer server;
+    MockHttpServer::Response response;
+    response.status = 200;
+    response.body = "fragment de test assez long pour forcer plusieurs octets";
+    response.piece_size = 1;
+    response.piece_delay_us = 1000;
+    server.enqueue(response);
+
+    const HttpClient client;
+    bool caught_original_type = false;
+    try {
+        (void)client.post_streaming(server.url("/v1/chat/completions"),
+                                   default_headers(),
+                                   "{}",
+                                   5,
+                                   [](const std::string&) { throw StreamingCallbackError("callback sentinel"); });
+    } catch (const StreamingCallbackError& error) {
+        caught_original_type = true;
+        CHECK_EQ(std::string(error.what()), std::string("callback sentinel"));
+    } catch (...) {
+        CHECK(false);
+    }
+    CHECK(caught_original_type);
+    CHECK_EQ(server.received_bodies().size(), std::size_t(1));
 }

@@ -6,6 +6,18 @@
 >
 > **Référence courante :** [PROJECT_CONTEXT.md](../context/PROJECT_CONTEXT.md). **Plans et questions :** [ROADMAP.md](../roadmap/ROADMAP.md), [OPEN_QUESTIONS.md](../questions/OPEN_QUESTIONS.md).
 
+## Suivi M5 — 5 novembre 2026, après M3
+
+**FAITS DE DÉPÔT** — Les PR #6 (M2), #7 (M3) et #9 (M4) sont
+**fusionnées** dans `main`, ce qui remplace leurs anciens statuts de
+brouillon *sans modifier les mentions historiques datées ci-dessous*.
+La PR #10, fusionnée au commit `2b54563f650e0995603472261ecfa306f53bd654`, retire
+`LANDLOCK_ACCESS_FS_EXECUTE` des permissions Landlock du workspace
+(`src/filesystem_sandbox.cpp`) et étend un test de sandbox
+(`tests/filesystem_sandbox_test.cpp`). Le total de déclarations
+`TEST(...)` reste **118**. **Résultat des tests après PR #10 : NON
+VÉRIFIÉ EN M5.** Source : commits / PR GitHub et lecture du code au SHA.
+
 ## Évolutions vérifiées après `4f33b62`
 
 | Période et jalon | Commit(s) vérifié(s) | Évolution attestée | Niveau de preuve |

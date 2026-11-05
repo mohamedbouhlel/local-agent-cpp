@@ -1,30 +1,15 @@
 # OPEN_QUESTIONS.md — informations manquantes, contradictions, non-vérifiables
 
-> Questions ouvertes issues de l'audit à HEAD `4f33b62`. Chaque entrée
-> indique **la preuve**, **pourquoi ça compte** et **ce qui trancherait**.
-> Aucune réponse n'est inventée : quand l'intention n'est pas écrite dans le
-> dépôt, elle est déclarée inconnue.
+> **Révision M3 du 2026-11-05.** Inventaire initial issu de l'audit historique `4f33b62` ; vérification de l'état actuel au SHA `add64b893ad447e76fb12b90e266ec8eab2f2956`. Les mentions « ancien constat », « résolu », « ouvert » et « non vérifié » s'appliquent au périmètre indiqué. La photographie technique est dans [PROJECT_CONTEXT.md](../context/PROJECT_CONTEXT.md) (branche M2 non fusionnée lors de M3).
+>
+> **Règle de lecture :** les commentaires sur une configuration `.env` ou un remote *local* sont des **observations historiques non recontrôlées** ; ils ne doivent pas être présentés comme le contenu du dépôt distant actuel. Les décisions non prises restent ouvertes.
 
 ## Bloc 1 — Validations et absence de tests
 
-### Q1. Les validations citées par les itérations ne sont pas reproductibles.
-`[RÉSOLU — P1.1/P2 : suite de tests versionnée et exécutable depuis le dépôt]`
-`[FAIT — état historique, audit à 4f33b62]` Aucun fichier de test, script de
-validation ou CI n'**était** suivi par Git ; `AGENTS.md` indiquait alors « Pas de
-suite de tests pour l'instant ». Les harnais C++ et mock serveurs utilisés
-pendant les itérations avaient été créés dans des répertoires temporaires puis
-supprimés.
-`[CORRECTION — état actuel, vérifié]` La suite est **versionnée** (`tests/`,
-11 fichiers) et **exécutable localement** (`-DAGENT_BUILD_TESTS=ON` puis
-`ctest`) : **6** groupes CTest, **107 cas / 376 assertions** après ajout du
-test de lien sortant (106/372 à `31f3e2a`, 75/298 à R0), **0 échec** lors
-de la dernière exécution rapportée. La citation « `AGENTS.md:18` : Pas de suite de
-tests » est **périmée** : la section `## Test` décrit désormais la suite et son
-activation.
-**Reste ouvert (distinct)** : **aucune CI** (intégration continue) n'est
-versionnée — non traité par cette réconciliation.
-**Résolution** : [`ROADMAP.md`](../roadmap/ROADMAP.md) **P1** (suite de tests) et
-**P2** (mock SSE versionné) sont **réalisés**.
+### Q1. Les validations citées sont-elles reproductibles ?
+**[RÉSOLU POUR LA VERSIONNABILITÉ, CI TOUJOURS OUVERTE]** À `4f33b62`, aucune suite de tests n'était versionnée (fait historique). À `add64b893ad447e76fb12b90e266ec8eab2f2956`, les fichiers `tests/` contiennent **118 déclarations `TEST(...)`** ; `tests/CMakeLists.txt` déclare **7 groupes CTest sous Linux** (vérifiés par lecture). `AGENTS.md` et PR #5 **rapportent** **403 assertions, 7/7 groupes réussis** ; **aucun test n'a été rejoué pendant M3**. Compteurs historiques : 66/264 (P3.3), 75/298 (R0), 106/372 (`31f3e2a`), 107/376 (relevé intermédiaire).
+**Reste ouvert séparément :** aucun workflow CI dans l'arbre Git examiné ; reproduction sur une machine propre non vérifiée pendant M3.
+**Preuves :** `tests/CMakeLists.txt`, `tests/*_test.cpp`, `AGENTS.md`, PR #5 ; `ROADMAP.md` P1/P2 réalisés.
 
 ### Q2. Le refactor `agent_core` est-il destiné aux tests, ou à autre chose ?
 `[CORRECTION — état post-31f3e2a]` `agent_core` est désormais exercé par les tests versionnés, notamment les tests agent et REPL. La question initiale sur l'absence de tests est devenue obsolète.
@@ -54,25 +39,14 @@ réconciliation
 ## Bloc 2 — Cible LLM et secrets
 
 ### Q4. Quel serveur et quel modèle sont réellement ciblés ?
-`[FAIT]` README cite llama.cpp, Ollama, LM Studio, vLLM comme **exemples**.
-Aucun serveur ni modèle n'est attesté dans le dépôt. `.env` (local, ignoré)
-définit les 4 variables et un `LLM_API_KEY` **non vide** (valeur non
-inspectée).
-**Pourquoi ça compte** : le plafond de 20 messages est justifié par « la
-fenêtre de contexte du modèle local » (`AGENTS.md`) — or cette fenêtre dépend
-du modèle, qui n'est pas documenté. L'adéquation du plafond est donc
-invérifiable. De même, l'usage d'une clé d'API suggère un serveur qui
-l'exige (Ollama/vLLM/LM Studio selon configuration) sans qu'on sache lequel.
-**Ce qui trancherait** : documenter serveur + modèle de référence, et la
-fenêtre de contexte visée ([`ROADMAP.md`](../roadmap/ROADMAP.md) P13, P16).
+**[OUVERT / NON VÉRIFIÉ]** `README.md` cite llama.cpp, Ollama, LM Studio et vLLM **comme exemples**. `src/main.cpp` et `.env.example` exposent des valeurs génériques. Aucune configuration serveur/modèle cible unique n'est attestée par les fichiers **suivis** consultés au SHA `add64b893ad447e76fb12b90e266ec8eab2f2956`.
+**Historique seulement :** un audit antérieur signalait une configuration `.env` locale avec clé non vide ; cette configuration n'a **pas été inspectée pendant M3** et n'établit pas le serveur actuellement utilisé.
+**Ce qui trancherait :** documentation d'un environnement de référence explicitement validé par le mainteneur (ROADMAP P13/P16).
 
 ### Q5. Quelle est la politique de gestion de `LLM_API_KEY` ?
-`[FAIT]` Le `.env` local contient une clé non vide ; `.env` est ignoré par
-Git. Aucune mention de rotation, de portée ou de stockage sécurisé.
-**Pourquoi ça compte** : le dépôt ne définit pas comment la clé est
-provisionnée sur une nouvelle machine, ni ce qu'elle protège.
-**Ce qui trancherait** : une note explicite (README/USAGE) sur la
-configuration et la sensibilité de cette variable.
+**[OUVERT]** `src/main.cpp` lit `LLM_API_KEY` dans l'environnement ; `.env.example` prévoit une valeur vide. Aucune politique détaillée de provisionnement/rotation n'a été établie dans les sources consultées.
+**Historique seulement :** la mention d'une clé non vide dans l'ancien `.env` local n'a pas été recontrôlée en M3 ; **aucune valeur secrète n'a été lue ou reproduite**.
+**Ce qui trancherait :** décision du mainteneur sur la portée et la gestion des identifiants, puis mise à jour de `USAGE.md`.
 
 ## Bloc 3 — Contradictions internes à la documentation
 
@@ -155,15 +129,10 @@ modèle sont en anglais alors que les énoncés utilisateur sont en français.
 **Pourquoi ça compte** : réutilisation/redistribution indécidables.
 **Ce qui trancherait** : ajouter une licence ([`ROADMAP.md`](../roadmap/ROADMAP.md) P12).
 
-### Q15. Le sandbox dépend du répertoire de lancement.
-`[FAIT]` `main.cpp` fait `std::filesystem::absolute("workspace")` (donc
-relatif au CWD) puis `create_directories`. Lancé depuis un autre répertoire,
-l'agent crée et utilise un `workspace/` **à cet endroit**, silencieusement.
-C'est documenté dans `USAGE.md`, mais aucune garde n'empêche ce comportement.
-**Pourquoi ça compte** : un utilisateur peut croire que les fichiers lus sont
-ceux du dépôt alors qu'ils viennent d'ailleurs.
-**Ce qui trancherait** : décision (garder/documenter davantage, ou ancrer le
-sandbox à un chemin déterministe).
+### Q15. Le sandbox dépend-il du répertoire de lancement ?
+**[FAIT VÉRIFIÉ ET DÉCISION TOUJOURS OUVERTE]** `src/main.cpp` utilise `prepare_workspace_root(std::filesystem::absolute("workspace"))`. Le `workspace/` est donc relatif au répertoire de lancement. La préparation rejette les racines symboliques et active Landlock ; l'ancien texte décrivant uniquement `create_directories` est dépassé (`src/filesystem_sandbox.cpp`).
+**Risque résiduel :** l'utilisateur peut viser le mauvais workspace s'il lance le programme depuis un autre répertoire.
+**Ce qui trancherait :** décision de conserver cet ancrage ou de le modifier ; aucune décision nouvelle en M3.
 
 ### Q16. `workspace/*` est ignoré mais `workspace/.gitkeep` est suivi.
 `[FAIT]` `.gitignore` : `workspace/*` + `!workspace/.gitkeep`.
@@ -174,13 +143,14 @@ fichier de `workspace/` échouerait sur un clone neuf.
 **Ce qui trancherait** : une note explicite, ou des fixtures de test hors
 sandbox.
 
-### Q17. Aucun remote Git configuré : le projet est-il volontairement local ?
-`[FAIT]` `git remote -v` vide, aucune branche distante, aucun tag.
-**Pourquoi ça compte** : impossible de savoir si la trajectoire prévoit une
-publication, un backup, ou une collaboration.
-**Ce qui trancherait** : une intention explicite du mainteneur.
+### Q17. Le dépôt est-il volontairement local ?
+**[RÉSOLU QUANT À L'EXISTENCE D'UN DÉPÔT DISTANT ; INTENTION FUTURE NON VÉRIFIÉE]** Le constat historique « aucun remote Git configuré » concernait le worktree local à `4f33b62`. Le dépôt GitHub `mohamedbouhlel/local-agent-cpp` existe désormais ; `main` inclut des PR fusionnées #1 à #5. Cela **ne prouve pas** la configuration des remotes sur une machine locale ou les objectifs futurs de publication/collaboration.
+**Preuve :** historique GitHub `main`, PR #1 à #5.
+**Ce qui trancherait :** décision explicite sur la stratégie de publication/collaboration, si nécessaire.
 
 ## Bloc 6 — Points non vérifiés faute d'accès
+
+> **M3 :** les essais LiteLLM restent des validations historiques rapportées ; l'accès au code actuel ne prouve pas leur reproduction au nouveau SHA.
 
 ### Q18. Comportement face à un vrai serveur LLM en streaming.
 `[FAIT RAPPORTÉ]` Les rapports du 23 septembre 2026 décrivent un essai nominal

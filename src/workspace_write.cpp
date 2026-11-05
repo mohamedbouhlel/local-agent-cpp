@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <optional>
 #include <string>
 #include <stdexcept>
 #include <utility>
@@ -90,15 +91,27 @@ std::string write_workspace(const std::filesystem::path& root,
 
     static std::atomic<unsigned long> counter{0};
     std::string temporary;
+    bool anonymous_temporary = false;
     int raw = -1;
-    for (int attempt = 0; attempt < 100; ++attempt) {
-        temporary = ".agent-tmp-" + std::to_string(::getpid()) + "-" + std::to_string(counter.fetch_add(1));
-        raw = ::openat(dir.get(), temporary.c_str(), O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0666);
-        if (raw >= 0 || errno != EEXIST) break;
+#ifdef __linux__
+    if (!overwrite) {
+        raw = ::openat(dir.get(), ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0666);
+        if (raw < 0)
+            throw std::runtime_error("failed to open file for writing: anonymous temporary file unavailable");
+        anonymous_temporary = true;
+    }
+#endif
+    if (raw < 0) {
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            temporary = ".agent-tmp-" + std::to_string(::getpid()) + "-" + std::to_string(counter.fetch_add(1));
+            raw = ::openat(dir.get(), temporary.c_str(), O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0666);
+            if (raw >= 0 || errno != EEXIST) break;
+        }
     }
     if (raw < 0) throw std::runtime_error("failed to open file for writing");
     Fd file(raw);
-    Temporary cleanup(dir.get(), temporary);
+    std::optional<Temporary> cleanup;
+    if (!anonymous_temporary) cleanup.emplace(dir.get(), temporary);
     std::size_t written = 0;
     while (written < content.size()) {
         const auto count = ::write(file.get(), content.data() + written, content.size() - written);
@@ -124,7 +137,12 @@ std::string write_workspace(const std::filesystem::path& root,
     if (overwrite) {
         if (::renameat(dir.get(), temporary.c_str(), dir.get(), filename.c_str()) != 0)
             throw std::runtime_error("failed to replace target file");
-        cleanup.release();
+        cleanup->release();
+    } else if (anonymous_temporary) {
+        if (::linkat(file.get(), "", dir.get(), filename.c_str(), AT_EMPTY_PATH) != 0) {
+            if (errno == EEXIST) throw std::runtime_error(exists_error(display));
+            throw std::runtime_error("failed to publish anonymous temporary file");
+        }
     } else {
         if (::linkat(dir.get(), temporary.c_str(), dir.get(), filename.c_str(), 0) != 0) {
             if (errno == EEXIST) throw std::runtime_error(exists_error(display));

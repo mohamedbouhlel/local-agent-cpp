@@ -131,11 +131,15 @@ directement (voir Architecture) sans relister les .cpp.
   et la CLI imprime un récapitulatif `[execution: N outil(s) reussi(s), M en
   echec]`. Un échec de protocole est signalé comme tel (`AgentError`), jamais
   masqué par une réponse de succès.
-- `write_file` : le fichier temporaire ouvert est relu et comparé avant la
-  publication. Cette vérification ne prouve pas l'état publié en présence
-  d'un processus concurrent : une substitution du nom temporaire a été
-  reproduite. Voir USAGE.md ; ne pas traiter le workspace comme frontière
-  de sécurité contre un processus pouvant le modifier.
+- `write_file` : les créations sans écrasement utilisent sous Linux un fichier
+  temporaire anonyme (`O_TMPFILE`) publié par `linkat(AT_EMPTY_PATH)` ; cela
+  supprime la substitution d'un nom temporaire avant publication. Les
+  écrasements (`overwrite: true`) utilisent encore un nom temporaire et
+  `renameat`. Dans les deux cas, le descripteur est relu avant publication et
+  l'identité publiée est vérifiée après publication ; cette vérification
+  détecte certains changements mais ne protège pas contre un processus
+  concurrent qui peut modifier le workspace. L'opération ne garantit pas la
+  durabilité après crash (pas de `fsync`). Voir USAGE.md.
 - Timeouts (Phase R0) : `CURLOPT_TIMEOUT` (total) est complété par
   `CURLOPT_CONNECTTIMEOUT` (établissement de connexion, borné à `min(timeout,
   10 s)`). Un timeout (`CURLE_OPERATION_TIMEDOUT`) produit un message distinct

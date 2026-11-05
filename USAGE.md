@@ -104,8 +104,10 @@ modifier le workspace simultanément.
 
 Sous Linux, le processus active également un confinement filesystem Landlock
 avant le REPL. Il autorise toutes les opérations dans le workspace. En dehors,
-la lecture est autorisée sous `/etc/ssl` et sur `/etc/hosts`,
-`/etc/resolv.conf` et `/etc/nsswitch.conf` lorsqu'ils existent. Les autres
+la lecture est autorisée sous `/etc/ssl/certs` et
+`/usr/share/ca-certificates`, ainsi que sur `/etc/ssl/openssl.cnf`,
+`/etc/hosts`, `/etc/resolv.conf` et `/etc/nsswitch.conf` lorsqu'ils existent.
+`/etc/ssl/private` reste refusé. Les autres
 accès filesystem, notamment sous `/usr`, `/lib` et `/lib64`, sont refusés après
 le démarrage du processus (ses bibliothèques sont chargées avant l'application
 du ruleset). Si Landlock est absent ou ne peut pas être

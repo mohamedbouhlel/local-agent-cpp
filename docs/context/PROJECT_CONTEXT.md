@@ -11,6 +11,31 @@
 >
 > Cette photographie **remplace l'ancienne introduction comme description courante**. L'audit à `4f33b62` est intégralement conservé plus bas sous « Archive historique » : ses constats ne concernent **que cet ancien commit**. L'historique chronologique reste dans [PROJECT_HISTORY.md](../history/PROJECT_HISTORY.md). Les propositions et questions restent dans [ROADMAP.md](../roadmap/ROADMAP.md) et [OPEN_QUESTIONS.md](../questions/OPEN_QUESTIONS.md), qui peuvent encore contenir des relevés antérieurs tant que M3 n'est pas exécuté.
 
+## Suivi de réconciliation — M5 au `2b54563f650e0995603472261ecfa306f53bd654` (2026-11-05)
+
+> **FAIT VÉRIFIÉ PAR LECTURE DU CODE, NON TESTÉ EN M5 :** après la
+> photographie M2 au SHA `add64b8`, les PR #6 (M2), #7 (M3) et #9 (M4)
+> ont été fusionnées. La PR #10 a ensuite modifié
+> `src/filesystem_sandbox.cpp` : la règle Landlock du workspace retire
+> `LANDLOCK_ACCESS_FS_EXECUTE`, ce qui interdit l'exécution de fichiers
+> depuis le workspace par le processus confiné. Le fichier
+> `tests/filesystem_sandbox_test.cpp` a été étendu avec un scénario
+> d'exécution refusée **dans un test existant**.
+>
+> L'arbre de `main` au commit `2b54563f650e0995603472261ecfa306f53bd654` compte **88 fichiers suivis**,
+> dont **40 rapports** et **13 fichiers de tests**. Le nombre de déclarations
+> `TEST(...)` reste **118** ; `tests/CMakeLists.txt` déclare toujours
+> **7 groupes sous Linux**. Les **403 assertions et 7/7 réussis** restent des
+> résultats **rapportés avant la PR #10** : **aucun build ni CTest n'a été
+> rejoué pendant M5**, et la nouvelle restriction Landlock n'est pas
+> certifiée par cet audit documentaire.
+>
+> Les passages datés de M2 ci-dessous, y compris leurs compteurs et mentions
+> de dettes documentaires alors ouvertes, restent exacts pour leur **SHA
+> d'observation** et ne sont pas réécrits rétroactivement. Voir
+> [le rapport M5](../reports/2026-11-05-m5-documentation-final-consistency.md)
+> pour les preuves et les limites.
+
 ## 1. Identité, environnement et périmètre vérifié
 
 **FAIT VÉRIFIÉ AU SHA** — Agent conversationnel CLI en C++20. `src/main.cpp` charge la configuration, prépare `workspace/` relativement au répertoire de lancement, enregistre les outils, active le confinement filesystem, puis lance la boucle REPL. L'agent appelle un endpoint compatible OpenAI `POST /v1/chat/completions` en streaming SSE (sources : `src/main.cpp`, `src/agent.cpp`, `src/http_client.cpp`).

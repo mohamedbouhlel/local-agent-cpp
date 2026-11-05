@@ -80,6 +80,8 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [`revue-proposition-repl-multiline-2026-09-23.md`](reports/revue-proposition-repl-multiline-2026-09-23.md) | Rapport ou revue historique : revue proposition repl multiline 2026 09 23.md |
 | [`2026-11-05-m4-guides-spec-index-reconciliation.md`](reports/2026-11-05-m4-guides-spec-index-reconciliation.md) | M4 — guides, statut de spécification et index documentaire |
 
+| [`2026-11-05-m5-documentation-final-consistency.md`](reports/2026-11-05-m5-documentation-final-consistency.md) | M5 — contrôle des liens, statuts, HEAD post-PR #10, preuves et limites de clôture |
+
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi
 > doit être reporté dans `context/`, `history/`, `roadmap/` ou `questions/`.

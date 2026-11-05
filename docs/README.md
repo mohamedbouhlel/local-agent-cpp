@@ -95,6 +95,8 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [`2026-11-05-tui-poc-2-functional-comparison.md`](reports/2026-11-05-tui-poc-2-functional-comparison.md) | TUI-POC-2 — parité fonctionnelle, harness élargi et recommandation ncursesw avec limites |
 | [`2026-11-05-tui-poc-closure-and-ncurses-qualification.md`](reports/2026-11-05-tui-poc-closure-and-ncurses-qualification.md) | Clôture POC-1/2 — revalidation PTY, mesures rejouées et qualification complémentaire ncursesw |
 | [`2026-11-05-tui-poc-3-ncursesw-real-terminal-qualification.md`](reports/2026-11-05-tui-poc-3-ncursesw-real-terminal-qualification.md) | TUI-POC-3 — observations utilisateur Ghostty, correction du viewport et qualification ncursesw avec limites |
+| [`2026-11-06-tui-1-async-agent-tui-contract.md`](reports/2026-11-06-tui-1-async-agent-tui-contract.md) | TUI-1 — prototype isolé du worker et du transfert d'événements borné; tests normaux et ThreadSanitizer, sans intégration moteur |
+| [`2026-11-06-tui-1-final-review.md`](reports/2026-11-06-tui-1-final-review.md) | TUI-1 — revue contradictoire, couverture renforcée, validation propre et limites avant publication |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

@@ -1,35 +1,49 @@
 # Agent CPP
 
-Agent IA minimal en C++, connecté à un LLM local compatible OpenAI.
+Agent conversationnel en ligne de commande, écrit en C++20, qui échange en streaming SSE avec un serveur LLM compatible OpenAI (`POST /v1/chat/completions`). Il expose quatre outils sur un répertoire `workspace/` : `list_files`, `read_file`, `search_files`, `write_file`.
+
+> **Plateforme d'exécution : Linux avec Landlock opérationnel.** L'application refuse de démarrer sans ce confinement, notamment sur macOS ; un compilateur C++20 ne suffit donc pas à rendre le binaire utilisable sur ces systèmes. Voir [USAGE.md](USAGE.md#5-outils-disponibles) pour les limites de sécurité. État vérifié par lecture du code au commit `465faae586c8f268d276597df05724431c750085`, 2026-11-05.
 
 ## Prérequis
-- CMake >= 3.20
-- Compilateur C++20
-- libcurl (dépendance système) :
-  - Debian/Ubuntu : sudo apt install libcurl4-openssl-dev
-  - macOS : brew install curl
-- nlohmann/json : récupéré automatiquement via FetchContent, rien à installer
-- Un serveur local exposant /v1/chat/completions (llama.cpp, Ollama, LM Studio, vLLM...)
 
-## Configuration
-cp .env.example .env
-# éditer .env avec LLM_BASE_URL / LLM_MODEL / LLM_API_KEY si besoin
+- Linux avec prise en charge de Landlock et autorisation d'activer les règles filesystem (sinon échec au démarrage).
+- CMake >= 3.20 et compilateur C++20.
+- libcurl (dépendance système), par exemple sous Debian/Ubuntu : `sudo apt install libcurl4-openssl-dev`.
+- Accès à la récupération de `nlohmann/json` v3.11.3 pendant la configuration CMake (`FetchContent`).
+- Serveur LLM répondant au protocole compatible OpenAI en streaming SSE. llama.cpp, Ollama, LM Studio et vLLM sont des **exemples**, pas des environnements validés dans ce document.
 
-Variables reconnues :
-- `LLM_BASE_URL` : endpoint local OpenAI-compatible. Défaut :
-  `http://localhost:8080/v1/chat/completions`.
-- `LLM_MODEL` : nom du modèle chargé côté serveur. Défaut : `local-model`.
-- `LLM_API_KEY` : optionnelle, pour serveurs locaux qui l'exigent.
-- `LLM_TIMEOUT_SECONDS` : optionnelle, timeout des requêtes HTTP. Défaut : `60`.
+## Compiler
 
-## Build
-cmake -B build
+```sh
+cmake -S . -B build
 cmake --build build
+```
 
-## Run
-set -a; source .env; set +a
+## Configurer et lancer
+
+```sh
+cp .env.example .env
+# Adapter LLM_BASE_URL / LLM_MODEL / LLM_API_KEY si nécessaire
+set -a; . ./.env; set +a
 ./build/agent
+```
 
-## Utilisation
-Guide complet (configuration, REPL, outils sandboxés, limites, dépannage) :
-voir [USAGE.md](USAGE.md).
+La configuration est chargée depuis **l'environnement du processus** (`std::getenv`) ; le binaire ne lit pas directement `.env`. Les valeurs par défaut figurent dans [USAGE.md](USAGE.md#2-configuration) et `.env.example`. `workspace/` est relatif **au répertoire de lancement** ; le programme crée ce répertoire s'il manque et rejette une racine qui est un lien symbolique.
+
+## Vérifier les tests versionnés
+
+```sh
+cmake -S . -B build-tests -DAGENT_BUILD_TESTS=ON
+cmake --build build-tests
+ctest --test-dir build-tests --output-on-failure
+```
+
+Les tests sont désactivés par défaut. Le code versionné contient **118 déclarations `TEST(...)`** réparties en **7 groupes CTest sous Linux**. `AGENTS.md` et les rapports de la PR #5 mentionnent **403 assertions et 7/7 groupes réussis**, **résultats rapportés, non rejoués dans la réconciliation documentaire M4**.
+
+## Documentation
+
+- [USAGE.md](USAGE.md) : configuration, REPL simple/multiligne, outils, limites et dépannage.
+- [docs/README.md](docs/README.md) : index des documents de référence, spécifications et rapports.
+- [docs/context/PROJECT_CONTEXT.md](docs/context/PROJECT_CONTEXT.md) : photographie technique datée, limites et niveau de preuve.
+- [AGENTS.md](AGENTS.md) : consignes et gouvernance des modifications.
+

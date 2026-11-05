@@ -15,10 +15,17 @@ TEST(sandbox, denies_filesystem_access_outside_workspace)
     tests::TempDir root("landlock");
     const auto workspace = root.path() / "workspace";
     const auto inside = workspace / "inside.txt";
+    const auto executable = workspace / "probe.sh";
     const auto outside = root.path() / "outside.txt";
     const bool ssl_private_directory_exists = std::filesystem::is_directory("/etc/ssl/private");
     std::filesystem::create_directories(workspace);
     { std::ofstream file(inside); file << "inside"; }
+    { std::ofstream file(executable); file << "#!/bin/sh\nexit 23\n"; }
+    std::filesystem::permissions(executable,
+                                 std::filesystem::perms::owner_read
+                                     | std::filesystem::perms::owner_write
+                                     | std::filesystem::perms::owner_exec,
+                                 std::filesystem::perm_options::replace);
     { std::ofstream file(outside); file << "outside"; }
 
     const pid_t child = ::fork();
@@ -40,6 +47,11 @@ TEST(sandbox, denies_filesystem_access_outside_workspace)
         const int allowed_read = ::open(inside.c_str(), O_RDONLY | O_CLOEXEC);
         if (allowed_read < 0) ::_exit(13);
         ::close(allowed_read);
+
+        auto executable_path = executable.string();
+        char* executable_argv[] = {executable_path.data(), nullptr};
+        ::execv(executable_argv[0], executable_argv);
+        if (errno != EACCES && errno != EPERM) ::_exit(21);
 
         const int denied_write = ::open(outside.c_str(), O_WRONLY | O_TRUNC | O_CLOEXEC);
         if (denied_write >= 0) {

@@ -135,7 +135,8 @@ void apply_filesystem_sandbox(const std::filesystem::path& workspace_root)
                                  + std::system_error(errno, std::generic_category()).what());
     }
 
-    add_workspace_rule(ruleset.get(), workspace_root, handled);
+    const auto workspace_access = handled & ~static_cast<std::uint64_t>(LANDLOCK_ACCESS_FS_EXECUTE);
+    add_workspace_rule(ruleset.get(), workspace_root, workspace_access);
 
     for (const auto* path : {"/etc/ssl/certs", "/usr/share/ca-certificates",
                              "/etc/ssl/openssl.cnf", "/etc/hosts", "/etc/resolv.conf",

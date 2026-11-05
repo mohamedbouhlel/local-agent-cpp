@@ -84,15 +84,11 @@ cet écart.
 `[RÉSOLU — Phase R0]` `finish_reason == "length"` est refusé et le marqueur
 `"[DONE]"` est requis ; voir `src/agent.cpp` et les tests agent associés.
 
-### Q10. La durabilité (fsync) de `write_file` est-elle un compromis assumé ?
-`[FAIT]` `AGENTS.md`/`USAGE.md` documentent l'atomicité (rename) et le
-compromis hard-link, mais **rien** sur la durabilité après crash : aucun
-`fsync` du fichier temporaire ni du répertoire avant/après `rename`.
-**Pourquoi ça compte** : « atomique » peut être lu comme « durable », ce qui
-n'est pas garanti sans `fsync`. La distinction visibilité / durabilité n'est
-pas écrite.
-**Ce qui trancherait** : [`ROADMAP.md`](../roadmap/ROADMAP.md) P7 (implémenter `fsync` ou documenter la
-limite).
+### Q10. La durabilité (fsync) de `write_file` est-elle garantie ?
+**[RÉSOLU DOCUMENTAIREMENT — P7]** Non. `AGENTS.md` et `USAGE.md` indiquent
+que l'écriture vérifie le contenu et la publication, mais n'effectue pas de
+`fsync`; la persistance après crash n'est donc pas garantie. L'ajout de
+synchronisation disque reste une amélioration possible, non implémentée.
 
 ### Q11. `list_files` sans plafond : assumé ?
 `[FAIT]` `search_files` plafonne à 50 résultats, `list_files` n'a aucun
@@ -163,3 +159,30 @@ notamment les flux interrompus et les erreurs d'outils.
 `max_tool_iterations = 5` : aucune justification chiffrée ni mesure n'existe
 dans le dépôt.
 **Ce qui trancherait** : une note de calibrage, ou des tests de charge.
+
+### Q20. Quelle garantie offrir pour `write_file` avec `overwrite: true` ?
+**[DÉCISION DU MAINTENEUR REQUISE]** La création sans écrasement utilise
+`O_TMPFILE` et `linkat(AT_EMPTY_PATH)`. Le remplacement emploie encore un
+fichier temporaire nommé puis `renameat`. Le descripteur est vérifié avant la
+publication et l'identité publiée après, mais un processus pouvant écrire dans
+le répertoire peut substituer le nom temporaire avant `renameat`; la
+vérification peut alors signaler l'écart après que la cible a déjà changé.
+**Reproduction locale observée** : un watcher a remplacé une fois le temporaire
+pendant `write_workspace(..., overwrite=true)` avec un contenu témoin. L'appel
+a levé `published file differs from verified temporary file`, tandis que la
+cible contenait déjà `attacker-controlled`. Le probe était un programme
+ponctuel sous `/tmp`, compilé avec `src/workspace_write.cpp`; il n'est pas un
+test versionné ni une preuve d'exhaustivité.
+
+Une publication atomique de remplacement requiert actuellement un nom source
+dans le répertoire. Dans le modèle actuel, où d'autres processus du même
+compte peuvent modifier le workspace, le code ne peut pas garantir que ce nom
+reste lié au descripteur vérifié. Cela ne constitue pas une frontière de
+sécurité contre ces processus.
+
+**Choix à trancher :** (A) refuser temporairement `overwrite: true` dans
+l'agent; ou (B) conserver le comportement et assumer explicitement cette
+limite dans le modèle de menace. Une isolation par identité système distincte
+est une piste d'architecture séparée, pas une garantie fournie par ce patch.
+Le choix affecte le comportement visible et doit être approuvé avant
+implémentation.

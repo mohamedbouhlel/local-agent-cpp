@@ -1,3 +1,84 @@
+# PROJECT_CONTEXT.md — photographie technique du projet
+
+> **Statut : RÉFÉRENCE COURANTE DATÉE, avec annexe historique préservée**
+>
+> - Observation distante : **2026-11-05** (Europe/Paris).
+> - Dépôt : `mohamedbouhlel/local-agent-cpp`, branche `main`.
+> - **Commit exact examiné : `add64b893ad447e76fb12b90e266ec8eab2f2956`** (fusion de PR #5).
+> - Méthode : lecture du code, de CMake, des tests et de la documentation versionnés au commit indiqué.
+> - **Validation : structure et comportements vérifiés par inspection ; aucun build, CTest ou scénario LLM exécuté lors de M2.** Les chiffres d'assertions et succès des tests sont *rapportés* par les documents du dépôt/PR #5, pas reproduits ici.
+> - Worktree local, état des remotes locaux et environnement d'exécution : **NON VÉRIFIÉS**.
+>
+> Cette photographie **remplace l'ancienne introduction comme description courante**. L'audit à `4f33b62` est intégralement conservé plus bas sous « Archive historique » : ses constats ne concernent **que cet ancien commit**. L'historique chronologique reste dans [PROJECT_HISTORY.md](../history/PROJECT_HISTORY.md). Les propositions et questions restent dans [ROADMAP.md](../roadmap/ROADMAP.md) et [OPEN_QUESTIONS.md](../questions/OPEN_QUESTIONS.md), qui peuvent encore contenir des relevés antérieurs tant que M3 n'est pas exécuté.
+
+## 1. Identité, environnement et périmètre vérifié
+
+**FAIT VÉRIFIÉ AU SHA** — Agent conversationnel CLI en C++20. `src/main.cpp` charge la configuration, prépare `workspace/` relativement au répertoire de lancement, enregistre les outils, active le confinement filesystem, puis lance la boucle REPL. L'agent appelle un endpoint compatible OpenAI `POST /v1/chat/completions` en streaming SSE (sources : `src/main.cpp`, `src/agent.cpp`, `src/http_client.cpp`).
+
+**FAIT VÉRIFIÉ AU SHA** — Le programme actuel exige **Linux** pour démarrer en mode normal : `apply_filesystem_sandbox()` refuse explicitement le démarrage hors Linux. Cela ne constitue pas une décision de portabilité future. Le `README.md` fournit encore une instruction de dépendance macOS : ne pas en déduire que l'exécution macOS est prise en charge (source : `src/filesystem_sandbox.cpp`).
+
+**FAIT VÉRIFIÉ AU SHA** — Le dépôt distant comporte 85 fichiers suivis, dont 37 rapports dans `docs/reports/` et 13 fichiers dans `tests/` (inventaire de l'arbre Git du commit). Ce nombre **n'est pas** celui de l'audit historique `4f33b62` (19 fichiers).
+
+## 2. Build, composants et dépendances
+
+**FAIT VÉRIFIÉ AU SHA** — `CMakeLists.txt` impose CMake >= 3.20, C++20, `CURL::libcurl` et `nlohmann_json::nlohmann_json` ; nlohmann/json **v3.11.3** est récupéré par `FetchContent`. Il construit :
+- la bibliothèque statique `agent_core` (9 sources) : `agent.cpp`, `filesystem_sandbox.cpp`, `http_client.cpp`, `prompt_reader.cpp`, `sse_parser.cpp`, `tool_registry.cpp`, `workspace_tools.cpp`, `workspace_search.cpp`, `workspace_write.cpp` ;
+- l'exécutable `agent` à partir de `src/main.cpp`, lié à `agent_core` ;
+- une suite de tests **désactivée par défaut**, activable par `-DAGENT_BUILD_TESTS=ON`.
+
+Le guide d'installation et de lancement reste [README.md](../../README.md) ; les instructions d'utilisation détaillées restent [USAGE.md](../../USAGE.md). Les commandes d'exécution ci-dessous sont des **instructions issues du dépôt, non rejouées pendant M2** :
+
+```sh
+cmake -S . -B build
+cmake --build build
+cmake -S . -B build-tests -DAGENT_BUILD_TESTS=ON
+cmake --build build-tests
+ctest --test-dir build-tests --output-on-failure
+```
+
+## 3. Configuration et fonctionnement de l'agent
+
+**FAIT VÉRIFIÉ AU SHA** — `src/main.cpp` lit les variables d'environnement (pas de parseur `.env` dans le programme) :
+- `LLM_BASE_URL` : `http://localhost:8080/v1/chat/completions` par défaut ;
+- `LLM_MODEL` : `local-model` par défaut ;
+- `LLM_API_KEY` : vide par défaut, transmise via le header Bearer si renseignée ;
+- `LLM_TIMEOUT_SECONDS` : 60 s par défaut ; une valeur invalide ou non positive déclenche le retour à 60 s avec avertissement.
+
+**FAIT VÉRIFIÉ AU SHA** — Le REPL est simple ligne ou multiligne explicite : `:multi` ouvre un bloc, `:end` le termine, un bloc de zéro ligne est ignoré et un EOF avant le terminateur abandonne la saisie sans envoi (`src/prompt_reader.cpp`, `src/main.cpp`). L'implémentation existe, même si la [spécification approuvée](../specifications/repl-multiline-requirements.md) porte encore la phrase historique « aucune implémentation » (à réconcilier hors M2).
+
+**FAIT VÉRIFIÉ AU SHA** — `Agent::send()` consomme les événements SSE, reconstitue le texte et les `tool_calls` à partir des deltas, appelle `SseParser::flush()`, exige `[DONE]`, rejette `finish_reason="length"` et les appels d'outils dépourvus d'identifiant/nom valide ; les erreurs de protocole sont distinguées des erreurs de transport (`src/agent.cpp`, `include/agent.hpp`). L'historique est limité à **20 messages**, coupé sur les frontières de tours ; la boucle limite à **5** itérations d'outils (`src/agent.cpp`). Ces limites ne sont pas présentées comme des valeurs configurables.
+
+**FAIT VÉRIFIÉ AU SHA** — `HttpClient::post_streaming()` utilise libcurl ; le timeout de connexion est plafonné à `min(timeout_total, 10 s)`. `HttpClient::post()` non-streamé subsiste, sans appelant de production observé, conformément à la décision P3.1 antérieure (`src/http_client.cpp`, `src/agent.cpp`, rapport P3.1). La CLI affiche les succès/échecs effectifs des outils séparément du texte généré par le modèle (`src/main.cpp`, `include/agent.hpp`).
+
+## 4. Outils fichiers et limites de sécurité
+
+**FAIT VÉRIFIÉ AU SHA** — Quatre outils sont enregistrés dans `src/workspace_tools.cpp` : `list_files`, `read_file`, `search_files`, `write_file`. `read_file` limite le contenu à **50 000 caractères/octets stockés dans la chaîne**, `search_files` limite les résultats à **50 correspondances** et `write_file` refuse un contenu supérieur à **200 000 caractères/octets stockés dans la chaîne**. Les chemins absolus et composants `..` sont refusés. `write_file` requiert `overwrite: true` pour remplacer un fichier existant.
+
+**FAIT VÉRIFIÉ AU SHA** — La préparation de `workspace/` refuse une racine de workspace qui est un lien symbolique ; le confinement **Landlock** est ensuite imposé au processus avant le REPL et échoue en mode fermé s'il ne peut pas être activé (`src/filesystem_sandbox.cpp`, `src/main.cpp`). Les autorisations de lecture hors workspace sont limitées à quelques chemins explicitement listés pour TLS et résolution réseau, lorsqu'ils existent.
+
+**FAIT VÉRIFIÉ AU SHA** — La lecture et la recherche suivent les chemins au moyen de descripteurs et de `O_NOFOLLOW`, et rejettent les fichiers à liens physiques multiples (`st_nlink != 1`) ; l'écriture utilise des opérations relatives aux descripteurs (`openat`, `linkat` ou `renameat`), une vérification du contenu temporaire puis de l'identité du fichier publié (`src/workspace_tools.cpp`, `src/workspace_search.cpp`, `src/workspace_write.cpp`).
+
+**LIMITES / NON VÉRIFIÉ** — Landlock ne constitue ni une isolation réseau, ni une isolation des autres processus du même utilisateur ; des manipulations concurrentes du workspace peuvent subsister. Une vérification d'identité **après publication** peut signaler un problème sans garantir l'absence d'effets préalables. La visibilité atomique d'un renommage ne prouve pas la durabilité après crash : **aucun `fsync` observé** dans `src/workspace_write.cpp`. Se reporter à [l'analyse d'isolation](../reports/2026-11-04-isolation-systeme.md) pour les essais **historiques**, sans les confondre avec une preuve de sécurité exhaustive du code courant.
+
+## 5. Tests et état de validation
+
+**FAIT VÉRIFIÉ AU SHA** — Le harnais maison versionné dans `tests/` repose sur `agent_tests` et un mock HTTP loopback. Le code contient **118 déclarations `TEST(...)`**, réparties entre **7 groupes CTest sous Linux** (`sse`, `workspace`, `http`, `agent`, `repl`, `mock`, `sandbox`) ; chaque test CTest a un timeout de **30 s** (`tests/CMakeLists.txt`). Le groupe `sandbox` est conditionné à Linux.
+
+**VALIDATION RAPPORTÉE, NON REJOUÉE À M2** — `AGENTS.md` et la PR #5 rapportent **118 cas, 403 assertions et 7/7 groupes réussis**. Les **118 déclarations** et la configuration des **7 groupes** sont vérifiées dans le code ; les **403 assertions exécutées** et le verdict **7/7** ne sont pas certifiés par une nouvelle exécution M2. La PR #5 documente aussi une limite sur la vérification positive HTTPS/CA. **Aucune CI GitHub Actions** n'est présente dans l'arbre consulté.
+
+## 6. Incertitudes, décisions et maintenance documentaire
+
+- **NON VÉRIFIÉ** : environnement local, compilabilité sur toutes les distributions, test avec un vrai serveur LLM, cible serveur/modèle unique, résistance à toutes les courses concurrentes, durabilité après crash.
+- **DÉCISION APPROUVÉE PRÉEXISTANTE** : exigences `REPL-01` à `REPL-09` ; conservation de `HttpClient::post()` en P3.1. Le code observé n'autorise pas à présumer d'autres choix produit.
+- **DOCUMENTS NON ENCORE RÉCONCILIÉS À M2** : `ROADMAP.md`, `OPEN_QUESTIONS.md`, `PROJECT_HISTORY.md`, `AGENTS.md`, `README.md`, `USAGE.md` et la spécification REPL peuvent encore présenter des chiffres ou des formulations d'étapes antérieures.
+- Cette section de référence devra être revue lors d'un changement de code/configuration/tests, avec un **nouveau SHA** et un rapport daté. Les rapports anciens ne doivent pas être réécrits pour leur attribuer rétroactivement un état ultérieur.
+
+---
+
+## Archive historique — audit initial du 22 septembre 2026 à `4f33b62`
+
+> **STATUT : HISTORIQUE.** Le texte ci-dessous est conservé intégralement comme artefact de l'audit initial. Les expressions « HEAD », « actuel », « aucune suite de tests », « aucun remote » et les comptes de fichiers y désignent **exclusivement `4f33b62`**. Elles ne décrivent pas le HEAD `add64b893ad447e76fb12b90e266ec8eab2f2956`. Ne pas interpréter les liens de fichiers ou numéros de lignes anciens comme garantis sur le code actuel.
+
 # PROJECT_CONTEXT.md — contexte de référence (local-agent-cpp)
 
 > Audit réalisé le 2026-09-22 à HEAD `4f33b62`, arbre de travail propre.

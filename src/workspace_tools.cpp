@@ -128,6 +128,9 @@ std::string read_file(const std::filesystem::path& root, const nlohmann::json& a
     if (::fstat(file.get(), &info) != 0 || !S_ISREG(info.st_mode)) {
         throw std::runtime_error("path is not a regular file");
     }
+    if (info.st_nlink != 1) {
+        throw std::runtime_error("refusing to read a file with multiple hard links");
+    }
     std::string content(max_read_chars + 1, '\0');
     std::size_t bytes_read = 0;
     while (bytes_read < content.size()) {

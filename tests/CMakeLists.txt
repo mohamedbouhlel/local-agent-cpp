@@ -9,6 +9,7 @@ add_executable(agent_tests
   mock_http_server_test.cpp
   sse_parser_test.cpp
   workspace_tools_test.cpp
+  filesystem_sandbox_test.cpp
   http_client_test.cpp
   agent_streaming_test.cpp
   agent_e2e_test.cpp
@@ -21,7 +22,11 @@ target_compile_options(agent_tests PRIVATE -Wall -Wextra -Wpedantic)
 # Un test CTest par groupe : resultats lisibles par groupe et code de retour
 # distinct par groupe. Le TIMEOUT transforme un eventuel blocage en ECHEC
 # exploitable au lieu d'un job CI suspendu (constat R-01).
-foreach(group sse workspace http agent repl mock)
+set(test_groups sse workspace http agent repl mock)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  list(APPEND test_groups sandbox)
+endif()
+foreach(group IN LISTS test_groups)
   add_test(NAME ${group} COMMAND agent_tests --filter=${group})
   set_tests_properties(${group} PROPERTIES TIMEOUT 30)
 endforeach()

@@ -73,6 +73,7 @@ void walk(int dir, const std::string& prefix, const std::string* query, State& s
         if (S_ISDIR(info.st_mode)) { walk(child.get(), path, query, state); continue; }
         if (!query) continue;
         if (!S_ISREG(info.st_mode)) continue;
+        if (info.st_nlink != 1) continue;
 
         std::array<char, 4096> probe{};
         const auto n = ::read(child.get(), probe.data(), probe.size());

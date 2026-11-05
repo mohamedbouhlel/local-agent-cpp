@@ -17,8 +17,8 @@ set -a; source .env; set +a
 ## Test
 Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
 `test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
-(`mock_http_server.*`). 114 cas / 394 assertions répartis en 6 groupes : `sse`,
-`workspace`, `http`, `agent`, `repl`, `mock`.
+(`mock_http_server.*`). 115 cas / 398 assertions répartis en 7 groupes : `sse`,
+`workspace`, `sandbox`, `http`, `agent`, `repl`, `mock`.
 Désactivée par défaut, elle ne pèse jamais sur l'exécutable de production ;
 activation explicite :
 cmake -S . -B build-tests -DAGENT_BUILD_TESTS=ON
@@ -68,6 +68,19 @@ directement (voir Architecture) sans relister les .cpp.
 - Le code lit uniquement via std::getenv(), jamais de valeur en dur
 
 ## Décisions d'architecture (v1)
+- Confinement filesystem du processus (Linux) : avant le REPL, l'application
+  impose un ruleset Landlock en refusant le démarrage si le noyau ou les
+  permissions ne permettent pas son activation. L'agent peut lire et écrire
+  dans le workspace ; hors de celui-ci, les seuls chemins autorisés en lecture
+  sont `/usr`, `/lib`, `/lib64`, `/etc/ssl` et certains fichiers de config
+  réseau/chargeur (s'ils existent). Ces règles accordent la lecture sur ces
+  arbres, pas seulement sur des fichiers individuels nécessaires. Ce contrôle
+  s'applique au processus de l'agent, pas aux autres processus du même compte.
+  Les outils de lecture refusent les fichiers dont le compteur de liens
+  physiques indique plusieurs noms. Cette vérification ne protège pas contre
+  un autre processus du même compte qui modifie le workspace simultanément.
+  Le confinement n'est implémenté que sous Linux ; sur les autres systèmes,
+  le binaire refuse de démarrer plutôt que de fonctionner sans cette barrière.
 - Streaming : actif (stream: true). Les réponses sont consommées en SSE
   (src/sse_parser.cpp, framing uniquement) et le message assistant est
   reconstruit depuis les deltas OpenAI (content concaténé ; tool_calls

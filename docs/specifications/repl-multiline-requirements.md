@@ -1,5 +1,21 @@
 # Spécification — REPL multiline (`REPL-01` → `REPL-09`)
 
+> **ÉTAT D'IMPLÉMENTATION VÉRIFIÉ AU 2026-11-05 : IMPLÉMENTÉ** au
+> commit `465faae586c8f268d276597df05724431c750085`. Les décisions normatives `REPL-01` à `REPL-09`,
+> `D-1` à `D-8` et `A-1` à `A-9` restent inchangées. L'implémentation
+> correspondante est observable dans `src/prompt_reader.cpp`,
+> `src/main.cpp` et `tests/prompt_reader_test.cpp`.
+> Le groupe CTest `repl` est déclaré dans `tests/CMakeLists.txt`.
+> **Les tests n'ont pas été rejoués pendant M4** ; les résultats d'exécutions
+> antérieures restent des validations **rapportées**.
+>
+> **Portée temporelle :** les passages ci-dessous annonçant « aucune
+> implémentation », « état actuel : une ligne », « tests à créer » ou
+> « tests non exécutés » décrivent **l'état lors de la ratification du
+> 23 septembre 2026**. Ils sont préservés pour la traçabilité et **ne
+> décrivent pas l'état au commit ci-dessus**. Les exigences et arbitrages
+> ratifiés ne sont ni réécrits ni remplacés par cette note de statut.
+>
 > **STATUT : APPROUVÉE** — ratifiée le **2026-09-23** par les décisions **D-1 à
 > D-8** (voir §4). Ce document **remplace** la version « proposition » du même
 > chemin ; il est **normatif** pour l'implémentation à venir.

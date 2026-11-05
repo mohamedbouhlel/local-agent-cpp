@@ -6,13 +6,13 @@ reste le point d'entrée du projet (prérequis, configuration, build, exécution
 
 ## Documents de référence
 
-Documents **durables**, destinés à être tenus à jour.
+Documents **durables**, destinés à être tenus à jour. Le contexte technique est
+une **photographie datée à un commit**, non une promesse de synchronisation
+permanente avec `main`.
 
 | Document | Contenu |
 | --- | --- |
-| [`context/PROJECT_CONTEXT.md`](context/PROJECT_CONTEXT.md) | état réel du code à HEAD : architecture, config, outils, limites, état de validation |
-| [`reports/REVUE_CLOTURE_POST_31F3E2A.md`](reports/REVUE_CLOTURE_POST_31F3E2A.md) | réconciliation documentaire après `31f3e2a` et vérification de reprise |
-| [`reports/revue-proposition-repl-multiline-2026-09-23.md`](reports/revue-proposition-repl-multiline-2026-09-23.md) | archive de revue de la proposition multiligne, antérieure à son implémentation |
+| [`context/PROJECT_CONTEXT.md`](context/PROJECT_CONTEXT.md) | photographie vérifiée au SHA indiqué dans le document : architecture, configuration, limites et niveaux de preuve |
 | [`history/PROJECT_HISTORY.md`](history/PROJECT_HISTORY.md) | reconstitution chronologique du projet depuis l'historique Git, décisions et révisions |
 | [`roadmap/ROADMAP.md`](roadmap/ROADMAP.md) | trajectoire et suites possibles, séparant faits, déductions et propositions |
 | [`questions/OPEN_QUESTIONS.md`](questions/OPEN_QUESTIONS.md) | informations manquantes, contradictions et points non vérifiables |
@@ -23,7 +23,7 @@ Documents **normatifs** validés par le mainteneur (exigences approuvées).
 
 | Spécification | Contenu |
 | --- | --- |
-| [`specifications/repl-multiline-requirements.md`](specifications/repl-multiline-requirements.md) | **REPL multiline** — exigences `REPL-01` → `REPL-09` **approuvées** (D-1 à D-8) : déclenchement `:multi`, terminateur `:end`, conservation exacte, unicité de l'envoi, blocs vides, `exit`, EOF/Ctrl+D, retour à l'invite |
+| [`specifications/repl-multiline-requirements.md`](specifications/repl-multiline-requirements.md) | **REPL multiline** — exigences `REPL-01` → `REPL-09` **approuvées, implémentation vérifiée au SHA daté de M4** (D-1 à D-8 et arbitrages A-1 à A-9) : déclenchement `:multi`, terminateur `:end`, conservation exacte, unicité de l'envoi, blocs vides, `exit`, EOF/Ctrl+D, retour à l'invite |
 
 ## Rapports de phase
 
@@ -52,6 +52,34 @@ Artefacts **datés**, liés à un jalon précis.
 | [`reports/PHASE_GIT_CLOSURE_AUDIT_REPORT.md`](reports/PHASE_GIT_CLOSURE_AUDIT_REPORT.md) | audit de clôture Git : inventaire R0 / P3.3, matrice de séparation, fichiers mixtes et risques avant staging |
 | [`reports/PHASE_GIT_CLOSURE_EXECUTION_REPORT.md`](reports/PHASE_GIT_CLOSURE_EXECUTION_REPORT.md) | clôture Git en 2 commits — **constat d'arrêt (BLOQUÉ)** : fichier non suivi inattendu hors listes autorisées |
 
+
+### Rapports supplémentaires et archives historiques
+
+Les entrées ci-dessous complètent l'index initial sans effacer les intitulés des rapports antérieurs. Leur présence **n'atteste pas une validation au HEAD courant** ; lire les commits, dates, conditions d'essai et limites dans chaque rapport.
+
+| Rapport | Objet |
+| --- | --- |
+| [`2026-09-23-reanalyse-boucle-agentique.md`](reports/2026-09-23-reanalyse-boucle-agentique.md) | Rapport ou revue historique : reanalyse boucle agentique.md |
+| [`2026-09-23-repl-arbitrages-ratification.md`](reports/2026-09-23-repl-arbitrages-ratification.md) | Rapport ou revue historique : repl arbitrages ratification.md |
+| [`2026-09-23-repl-multiline-execution-preparation.md`](reports/2026-09-23-repl-multiline-execution-preparation.md) | Rapport ou revue historique : repl multiline execution preparation.md |
+| [`2026-09-23-repl-multiline-final-review-and-implementation-plan.md`](reports/2026-09-23-repl-multiline-final-review-and-implementation-plan.md) | Rapport ou revue historique : repl multiline final review and implementation plan.md |
+| [`2026-09-23-repl-multiline-implementation.md`](reports/2026-09-23-repl-multiline-implementation.md) | Rapport ou revue historique : repl multiline implementation.md |
+| [`2026-09-23-repl-multiline-precommit-audit.md`](reports/2026-09-23-repl-multiline-precommit-audit.md) | Rapport ou revue historique : repl multiline precommit audit.md |
+| [`2026-09-23-repl-multiline-preparation.md`](reports/2026-09-23-repl-multiline-preparation.md) | Rapport ou revue historique : repl multiline preparation.md |
+| [`2026-09-23-repl-multiline-requirements-definition.md`](reports/2026-09-23-repl-multiline-requirements-definition.md) | Rapport ou revue historique : repl multiline requirements definition.md |
+| [`2026-09-23-repl-multiline-requirements-ratification.md`](reports/2026-09-23-repl-multiline-requirements-ratification.md) | Rapport ou revue historique : repl multiline requirements ratification.md |
+| [`2026-09-23-repl-multiline-review-closure.md`](reports/2026-09-23-repl-multiline-review-closure.md) | Rapport ou revue historique : repl multiline review closure.md |
+| [`2026-09-23-repl-spec-rename.md`](reports/2026-09-23-repl-spec-rename.md) | Rapport ou revue historique : repl spec rename.md |
+| [`2026-09-23-test-agentique-multi-etapes.md`](reports/2026-09-23-test-agentique-multi-etapes.md) | Rapport ou revue historique : test agentique multi etapes.md |
+| [`2026-09-23-validation-tests-agent.md`](reports/2026-09-23-validation-tests-agent.md) | Rapport ou revue historique : validation tests agent.md |
+| [`2026-09-23_132149-test-fonctionnel-agent-litellm.md`](reports/2026-09-23_132149-test-fonctionnel-agent-litellm.md) | Compte rendu d'un essai fonctionnel historique avec LiteLLM |
+| [`2026-11-04-isolation-systeme.md`](reports/2026-11-04-isolation-systeme.md) | Essai historique de l'isolation par montage et des liens physiques |
+| [`2026-11-05-m2-project-context-reconciliation.md`](reports/2026-11-05-m2-project-context-reconciliation.md) | M2 — contexte actuel daté et archive historique conservée |
+| [`2026-11-05-m3-history-roadmap-questions-reconciliation.md`](reports/2026-11-05-m3-history-roadmap-questions-reconciliation.md) | M3 — réconciliation historique, roadmap et questions |
+| [`REVUE_CLOTURE_POST_31F3E2A.md`](reports/REVUE_CLOTURE_POST_31F3E2A.md) | Rapport ou revue historique : REVUE CLOTURE POST 31F3E2A.md |
+| [`revue-proposition-repl-multiline-2026-09-23.md`](reports/revue-proposition-repl-multiline-2026-09-23.md) | Rapport ou revue historique : revue proposition repl multiline 2026 09 23.md |
+| [`2026-11-05-m4-guides-spec-index-reconciliation.md`](reports/2026-11-05-m4-guides-spec-index-reconciliation.md) | M4 — guides, statut de spécification et index documentaire |
+
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi
 > doit être reporté dans `context/`, `history/`, `roadmap/` ou `questions/`.
@@ -62,8 +90,20 @@ Restent à la racine, pour les outils et les lecteurs :
 
 - [`README.md`](../README.md) — prérequis, configuration, build, exécution ;
 - [`USAGE.md`](../USAGE.md) — guide d'utilisation (REPL, outils, limites, dépannage) ;
-- [`AGENTS.md`](../AGENTS.md) — instructions de travail et décisions d'architecture ;
+- [`AGENTS.md`](../AGENTS.md) — instructions de travail, invariants et gouvernance ;
 - [`CLAUDE.md`](../CLAUDE.md) — renvoi vers `AGENTS.md`.
+
+## Règle de maintien à jour
+
+Chaque document de référence doit préciser, selon sa nature, **le commit
+ou la période observée**, son niveau de preuve et les éléments non vérifiés.
+Les résultats d'un rapport historique ne deviennent pas des validations
+courantes sans réexécution. Après une modification de code, contrôler les
+impacts sur `README.md`, `USAGE.md`, `AGENTS.md`, les références
+`context/`, `history/`, `roadmap/`, `questions/` et la spécification
+concernée ; modifier uniquement les documents affectés.
+Chaque itération documentaire est accompagnée d'un rapport durable dans
+`docs/reports/`, avec sources, vérifications, limites et verdict.
 
 ## Convention de nommage observée
 

@@ -59,4 +59,44 @@ TEST(sandbox, denies_filesystem_access_outside_workspace)
     CHECK(WIFEXITED(status));
     CHECK_EQ(WEXITSTATUS(status), 0);
 }
+
+TEST(sandbox, refuses_symlink_workspace_root)
+{
+    tests::TempDir root("landlock_symlink_root");
+    const auto target = root.path() / "target";
+    const auto link = root.path() / "workspace-link";
+    std::filesystem::create_directories(target);
+    std::error_code error;
+    std::filesystem::create_directory_symlink(target, link, error);
+    if (error) {
+        std::cout << "    (SKIP: creation de lien symbolique impossible: " << error.message() << ")\n";
+        return;
+    }
+
+    CHECK_THROWS_MSG(apply_filesystem_sandbox(link), "workspace root must be a real directory");
+}
+
+TEST(sandbox, preparation_rejects_dangling_symlink_without_creating_target)
+{
+    tests::TempDir root("landlock_dangling_symlink");
+    const auto target = root.path() / "outside-target";
+    const auto link = root.path() / "workspace-link";
+    std::error_code error;
+    std::filesystem::create_directory_symlink(target, link, error);
+    if (error) {
+        std::cout << "    (SKIP: creation de lien symbolique impossible: " << error.message() << ")\n";
+        return;
+    }
+
+    CHECK_THROWS_MSG(prepare_workspace_root(link), "workspace root must be a real directory");
+    CHECK(!std::filesystem::exists(target));
+}
+
+TEST(sandbox, preparation_creates_missing_workspace_directory)
+{
+    tests::TempDir root("landlock_create_workspace");
+    const auto workspace = root.path() / "workspace";
+    CHECK_EQ(prepare_workspace_root(workspace), workspace);
+    CHECK(std::filesystem::is_directory(workspace));
+}
 #endif

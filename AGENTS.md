@@ -17,7 +17,7 @@ set -a; source .env; set +a
 ## Test
 Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
 `test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
-(`mock_http_server.*`). 115 cas / 398 assertions répartis en 7 groupes : `sse`,
+(`mock_http_server.*`). 118 cas / 403 assertions répartis en 7 groupes : `sse`,
 `workspace`, `sandbox`, `http`, `agent`, `repl`, `mock`.
 Désactivée par défaut, elle ne pèse jamais sur l'exécutable de production ;
 activation explicite :
@@ -71,7 +71,9 @@ directement (voir Architecture) sans relister les .cpp.
 - Confinement filesystem du processus (Linux) : avant le REPL, l'application
   impose un ruleset Landlock en refusant le démarrage si le noyau ou les
   permissions ne permettent pas son activation. L'agent peut lire et écrire
-  dans le workspace ; hors de celui-ci, les seuls chemins autorisés en lecture
+  dans le workspace, qui doit être un vrai répertoire et non un lien symbolique ;
+  la règle est attachée à un descripteur ouvert avec `O_NOFOLLOW`. Hors du
+  workspace, les seuls chemins autorisés en lecture
   sont `/usr`, `/lib`, `/lib64`, `/etc/ssl` et certains fichiers de config
   réseau/chargeur (s'ils existent). Ces règles accordent la lecture sur ces
   arbres, pas seulement sur des fichiers individuels nécessaires. Ce contrôle

@@ -56,7 +56,7 @@
 
 - **[FAIT VÉRIFIÉ]** `src/workspace_search.cpp` limite la recherche à **50 résultats** mais ne borne pas la taille d'une ligne ni le volume total parcouru ; `list_files` n'impose pas de limite explicite au nombre de chemins affichés. Les propositions **P4/P5** restent des propositions, non décidées.
 - **[FAIT VÉRIFIÉ]** `src/agent.cpp` conserve des limites de compilation **20 messages** et **5 itérations d'outils**. Leur calibration n'est pas démontrée ; proposition **P9/P16**, non décidée.
-- **[FAIT VÉRIFIÉ]** `src/workspace_write.cpp` publie les écritures via `linkat`/`renameat` et vérifie contenu puis identité du fichier publié ; **aucun `fsync` observé** : la durabilité après crash n'est pas prouvée (**P7**, décision encore ouverte).
+- **[FAIT VÉRIFIÉ]** `src/workspace_write.cpp` publie les créations sans écrasement sous Linux depuis un inode `O_TMPFILE` via `linkat(AT_EMPTY_PATH)`. Les remplacements utilisent un temporaire nommé puis `renameat`. Le descripteur est vérifié avant publication et l'identité après publication ; cela ne ferme pas la course si un autre processus peut écrire dans le répertoire. Aucun `fsync` n'est effectué : la durabilité après crash n'est pas garantie.
 - **[FAIT VÉRIFIÉ]** Les opérations de fichiers incluent des garde-fous contre les liens symboliques et liens physiques multiples ; **[LIMITATION]** les accès concurrents par d'autres processus du même UID et la fenêtre entre publication et vérification ne sont pas éliminés. La revue sécurité complète est **non vérifiée**.
 - **[FAIT VÉRIFIÉ]** Le programme refuse de démarrer hors Linux dans `src/filesystem_sandbox.cpp` ; la mention de macOS dans `README.md` est une dette documentaire M4.
 - **[FAIT VÉRIFIÉ]** `workspace/` dépend du répertoire de lancement (`src/main.cpp`).
@@ -133,9 +133,9 @@
   fichier lue) et documenter la complexité du parcours. Dette §B.8.
 - **P6 (FAIT — Phase R0)** — `CURLOPT_CONNECTTIMEOUT` ajouté (borne
   `min(timeout, 10 s)`) ; timeout distingué des autres échecs curl. Dette §B.9.
-- **P7 (PROPOSITION)** — Décider explicitement : soit `fsync` fichier +
-  répertoire avant/après `rename`, soit documenter que la durabilité après
-  crash n'est pas garantie. Dette §B.11.
+- **P7 (RÉSOLU DOCUMENTAIREMENT)** — `AGENTS.md` et `USAGE.md` indiquent que
+  l'écriture n'est pas garantie durable après crash faute de `fsync`. La
+  synchronisation disque n'est pas implémentée.
 - **P8 (FAIT — Phase R0)** — `SseParser::flush()` ajouté ; le dernier événement
   non terminé est restitué (l'agent exige en outre `[DONE]`). Dette §B.2.
 

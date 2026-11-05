@@ -118,6 +118,17 @@ l'implémentation se trouve dans `src/prompt_reader.cpp` et `src/main.cpp`.
 Les outils ne sont **pas** invocables manuellement depuis le REPL : c'est le
 LLM qui décide de les appeler pendant qu'il compose sa réponse.
 
+`write_file` prépare et vérifie le contenu avant publication. Sous Linux,
+une création avec `overwrite: false` part d'un fichier temporaire anonyme
+(`O_TMPFILE`), publié atomiquement sans écrasement avec `linkat`; le système
+de fichiers doit prendre en charge ce mécanisme. Un échec d'ouverture est
+signalé, sans repli vers un fichier temporaire nommé. Avec `overwrite: true`,
+la publication utilise encore un fichier temporaire nommé puis `renameat`.
+La vérification de l'identité après publication peut détecter une substitution,
+mais ne l'empêche pas et ne garantit pas l'état ultérieur si un autre processus
+peut modifier le workspace. L'écriture n'est pas garantie durable après une
+coupure de courant ou un crash (pas de `fsync`).
+
 ## 5. Outils disponibles
 
 Les quatre outils sont enregistrés au démarrage (`register_workspace_tools()`

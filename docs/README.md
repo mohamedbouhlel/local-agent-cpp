@@ -87,6 +87,8 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [`2026-11-05-ui-1-final-review.md`](reports/2026-11-05-ui-1-final-review.md) | Revue contradictoire UI-1, correction minimale d'un échec d'outil non standard, et validation propre avant publication |
 | [`2026-11-05-ui-2-presentation-state-terminal-capabilities.md`](reports/2026-11-05-ui-2-presentation-state-terminal-capabilities.md) | UI-2 — état de présentation dérivé des événements et capacités terminal injectables ; résultats de validation au SHA de base indiqué |
 | [`2026-11-05-ui-2-final-review.md`](reports/2026-11-05-ui-2-final-review.md) | Revue contradictoire UI-2, correction de l'incohérence documentaire et validation propre avant publication |
+| [`2026-11-05-ui-3-console-renderers.md`](reports/2026-11-05-ui-3-console-renderers.md) | UI-3 — renderers Plain/Rich, neutralisation des contrôles terminal et intégration CLI; résultats au SHA de base indiqué |
+| [`2026-11-05-ui-3-final-review.md`](reports/2026-11-05-ui-3-final-review.md) | Revue finale UI-3, vérification des frontières de flux terminal, tests propres et publication |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

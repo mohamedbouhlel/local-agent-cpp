@@ -3,13 +3,19 @@
 #include "http_client.hpp"
 #include "prompt_reader.hpp"
 #include "tool_registry.hpp"
+#include "ui/console_renderer.hpp"
+#include "ui/console_session.hpp"
+#include "ui/presentation_controller.hpp"
+#include "ui/terminal_capabilities.hpp"
 #include "workspace_tools.hpp"
 
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -47,12 +53,6 @@ AgentConfig load_config()
     };
 }
 
-std::string first_line(const std::string& text)
-{
-    const auto newline = text.find('\n');
-    return newline == std::string::npos ? text : text.substr(0, newline);
-}
-
 } // namespace
 
 int main()
@@ -69,7 +69,10 @@ int main()
         return 1;
     }
 
-    Agent agent(tools, config);
+    auto renderer = agent::ui::make_console_renderer(
+        std::cout, std::cerr, agent::ui::detect_terminal_capabilities());
+    auto presentation = std::make_shared<agent::ui::PresentationController>(std::move(renderer));
+    Agent agent(tools, config, presentation);
 
     std::cout << "agent-cpp ready. Type 'exit' to quit.\n";
 
@@ -104,62 +107,7 @@ int main()
 
         const std::string& input = prompt.content;
 
-        bool streamed_text = false;
-        int tools_ok = 0;
-        int tools_failed = 0;
-
-        AgentCallbacks callbacks;
-        callbacks.on_text_delta = [&streamed_text](const std::string& fragment) {
-            std::cout << fragment;
-            std::cout.flush();
-            streamed_text = true;
-        };
-        callbacks.on_tool_call = [](const std::string& name) {
-            std::cout << "[appel de " << name << "...]\n";
-        };
-        // Verdict d'exécution produit par le programme : il reflète ce qui a
-        // réellement été exécuté (succès/échec de chaque outil), et non ce que
-        // le modèle affirme avoir fait.
-        callbacks.on_tool_result = [&tools_ok, &tools_failed](const ToolOutcome& outcome) {
-            if (outcome.ok) {
-                ++tools_ok;
-            } else {
-                ++tools_failed;
-            }
-            std::cout << "[" << outcome.name << " -> " << (outcome.ok ? "succes" : "ECHEC")
-                      << (outcome.ok ? std::string() : " (" + first_line(outcome.result) + ")")
-                      << "]\n";
-        };
-
-        try {
-            agent.send(input, callbacks);
-            std::cout << "\n";
-            if (tools_ok + tools_failed > 0) {
-                std::cout << "[execution: " << tools_ok << " outil(s) reussi(s), " << tools_failed
-                          << " en echec]\n";
-            }
-        } catch (const HttpError& error) {
-            // Si du texte a déjà été imprimé en streaming, l'erreur doit
-            // démarrer sur sa propre ligne pour rester lisible.
-            if (streamed_text) {
-                std::cout << "\n";
-            }
-            std::cerr << "Impossible de contacter LLM_BASE_URL (" << config.base_url << ")"
-                      << ": " << error.what() << "\n";
-        } catch (const AgentError& error) {
-            // Flux incomplet ou tool call invalide : le programme le signale
-            // comme un échec d'exécution, sans présenter la réponse comme
-            // définitive.
-            if (streamed_text) {
-                std::cout << "\n";
-            }
-            std::cerr << "Reponse incomplete ou invalide du modele: " << error.what() << "\n";
-        } catch (const std::exception& error) {
-            if (streamed_text) {
-                std::cout << "\n";
-            }
-            std::cerr << "Reponse du serveur inattendue: " << error.what() << "\n";
-        }
+        static_cast<void>(agent::ui::run_console_turn(agent, input, config.base_url, *presentation));
     }
 
     return 0;

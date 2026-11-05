@@ -23,6 +23,8 @@ add_library(agent_core STATIC
   src/prompt_reader.cpp
   src/sse_parser.cpp
   src/tool_registry.cpp
+  src/ui/presentation_state.cpp
+  src/ui/terminal_capabilities.cpp
   src/workspace_tools.cpp
   src/workspace_search.cpp
   src/workspace_write.cpp

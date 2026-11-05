@@ -85,6 +85,8 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [`2026-11-05-ui-0c-specification-ratification.md`](reports/2026-11-05-ui-0c-specification-ratification.md) | UI-0C — SPEC-UI-001 et validation au merge de la PR #15 (7/7 groupes, 118 cas / 407 assertions) |
 | [`2026-11-05-ui-1-event-instrumentation.md`](reports/2026-11-05-ui-1-event-instrumentation.md) | UI-1 — contrat `AgentEvent`, instrumentation de l'agent et protection des callbacks libcurl ; résultats de validation sur la branche de travail |
 | [`2026-11-05-ui-1-final-review.md`](reports/2026-11-05-ui-1-final-review.md) | Revue contradictoire UI-1, correction minimale d'un échec d'outil non standard, et validation propre avant publication |
+| [`2026-11-05-ui-2-presentation-state-terminal-capabilities.md`](reports/2026-11-05-ui-2-presentation-state-terminal-capabilities.md) | UI-2 — état de présentation dérivé des événements et capacités terminal injectables ; résultats de validation au SHA de base indiqué |
+| [`2026-11-05-ui-2-final-review.md`](reports/2026-11-05-ui-2-final-review.md) | Revue contradictoire UI-2, correction de l'incohérence documentaire et validation propre avant publication |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

@@ -1,3 +1,34 @@
+# PROJECT_HISTORY.md — chronologie et traçabilité
+
+> **Périmètre ajouté par M3 :** historique Git distant vérifié jusqu'au commit `add64b893ad447e76fb12b90e266ec8eab2f2956` de `main`, consulté le **2026-11-05**. Cette mise à jour est préparée à partir de la branche M2 `f77fb53b2e398d0e455b4e2d9d21fc7fe64de7b1` non fusionnée lors de l'ouverture de M3. Les événements ci-dessous sont des **faits de dépôt** ou des **validations rapportées** ; les dates des commits sont celles de GitHub (UTC).
+>
+> **Archive préservée :** la reconstitution initiale des 27 commits au `4f33b62` (21–22 septembre) est conservée **intégralement et à l'identique** après les ajouts ci-dessous ; sa mention de « HEAD » ne s'applique qu'à cet ancien audit.
+>
+> **Référence courante :** [PROJECT_CONTEXT.md](../context/PROJECT_CONTEXT.md). **Plans et questions :** [ROADMAP.md](../roadmap/ROADMAP.md), [OPEN_QUESTIONS.md](../questions/OPEN_QUESTIONS.md).
+
+## Évolutions vérifiées après `4f33b62`
+
+| Période et jalon | Commit(s) vérifié(s) | Évolution attestée | Niveau de preuve |
+|---|---|---|---|
+| 22–23 septembre : harnais | `1abe663`, `db88cdf`, `51b7d2c` | Tests versionnés, documentation P1.1, scénarios HTTP/SSE mockés | Commits et `tests/` consultés |
+| 23 septembre : robustesse R0 et gouvernance documentaire | `0802357`, `d155e04`, `427c56d` | Complétude du streaming, `SseParser::flush()`, verdicts d'outils, rapports de réconciliation | Code actuel + commits/rapports |
+| 23 septembre : essais agentiques | `0c30e49`, `a63ee0c`, `d044517`, `f62ca36` | Rapports d'essais LiteLLM, multi-étapes et de revue de boucle | Rapports historiques, **non rejoués à M3** |
+| 23 septembre : REPL multiligne | `31f3e2a` | Ajout de `prompt_reader`, mode `:multi` / `:end` et groupe de tests REPL ; état rapporté **106 cas/372 assertions/6 groupes** | Commit et code actuel ; compteur historique rapporté |
+| 4 novembre : remise en cohérence et recherche | `90438da`, `c7cba24`, `b861afa`, `36530be`, `2ec7f15` | Documentation et durcissements de la traversée de chemins en lecture/recherche | Commits et code actuel |
+| 4–5 novembre : écriture, gouvernance et confinement | `608baff`, `de57318`, `f4056c6`, `f4ac24c`, PR #1 à #3 | Énumération sans suivi des liens, écriture à descripteurs, vérification de publication, gouvernance PR, Landlock | Commits et code actuel ; limites de concurrence persistantes |
+| 5 novembre : resserrement Landlock | PR #4 et #5, `5d2d9c2`, `b42caab`, `6f1402f` ; fusion `add64b893ad447e76fb12b90e266ec8eab2f2956` | Rejet des racines `workspace` symboliques, restriction des chemins hors workspace, exclusion de `/etc/ssl/private` | PR fusionnées et `src/filesystem_sandbox.cpp` |
+| 5 novembre : réconciliation M2 en attente | `f77fb53`, PR #6 (**brouillon, non fusionnée à l'ouverture de M3**) | Nouvelle photographie technique dans `PROJECT_CONTEXT.md`, archive `4f33b62` préservée | Branche M2 ; **non présent sur main** |
+
+**Compteurs de tests — séquence historique, sans écraser les états :** P3.3 **66/264** (rapport), R0 **75/298** (rapport), REPL `31f3e2a` **106/372** (rapport), relevé intermédiaire **107/376** (rapport). À `add64b893ad447e76fb12b90e266ec8eab2f2956`, **118 déclarations `TEST(...)` et 7 groupes CTest Linux** sont lisibles dans le dépôt ; **403 assertions et 7/7 réussis** sont annoncés dans `AGENTS.md` et la PR #5, **non rejoués en M3**.
+
+**Limite méthodologique :** cette extension s'appuie sur l'historique des commits, les rapports et l'inspection du code courant ; contrairement à l'audit initial de 27 commits, elle n'affirme **pas** avoir analysé chaque diff intermédiaire ligne par ligne. Les résultats des essais externes restent des faits *rapportés*.
+
+---
+
+## Archive historique inchangée — audit des 27 premiers commits
+
+> **HISTORIQUE UNIQUEMENT — état `4f33b62`.** Tout « HEAD » ou « actuel » figurant sous cette section désigne l'état du 22 septembre et non le HEAD GitHub courant.
+
 # PROJECT_HISTORY.md — reconstitution chronologique
 
 > Source : `git log --reverse --numstat` + inspection des diffs à chaque

@@ -11,6 +11,30 @@
 
 > **Réconciliation M3 du 2026-11-05 :** sections A/B mises à jour à `add64b893ad447e76fb12b90e266ec8eab2f2956` ; sections C–F conservent les **déductions et propositions historiques** de l'audit. Les anciennes sections A/B sont préservées en annexe et ne définissent plus l'état courant.
 
+## Suivi des écarts documentaires M4/M5 — `2b54563f650e0995603472261ecfa306f53bd654`
+
+- **[RÉSOLU DOCUMENTAIREMENT — M4]** Le `README.md` ne présente plus macOS
+  comme plateforme d'exécution prise en charge ; Linux/Landlock est annoncé.
+- **[RÉSOLU DOCUMENTAIREMENT — M4]** `AGENTS.md` décrit la troncature par
+  **tours complets** et sa section d'architecture ne porte plus le titre
+  « Décisions d'architecture (v1) ». Les items historiques **Q6/Q7**
+  sont requalifiés dans [OPEN_QUESTIONS.md](../questions/OPEN_QUESTIONS.md).
+- **[RÉSOLU DOCUMENTAIREMENT — M4]** La spécification REPL conserve ses
+  décisions normatives, mais précise en introduction que le REPL multiligne
+  a été implémenté ; ses formulations d'avant implémentation restent des
+  archives datées.
+- **[FAIT NOUVEAU — PR #10]** La règle Landlock du workspace interdit
+  désormais l'accès `LANDLOCK_ACCESS_FS_EXECUTE` au SHA
+  `2b54563f650e0995603472261ecfa306f53bd654`. Les autres limites de sécurité, notamment la concurrence
+  entre processus, restent distinctes et **non levées** par ce changement.
+- **[VALIDATION NON REJOUÉE]** Le code déclare encore 118 cas CTest répartis
+  en 7 groupes sous Linux. L'extension d'un test par la PR #10 ne prouve
+  pas un nouvel état **7/7 passés** ; le relevé **403 assertions** reste
+  rapporté antérieurement.
+- **[PROPOSITIONS HISTORIQUES]** Les sections C–F et l'ancienne annexe A/B
+  demeurent des documents de proposition ou d'archive ; aucun choix produit
+  nouveau n'est approuvé par M5.
+
 ## A. FAITS — photographie bornée au SHA `add64b893ad447e76fb12b90e266ec8eab2f2956`
 
 > **Contrôle M3 :** lecture du dépôt GitHub au SHA ci-dessus. Les réussites de tests décrites par les rapports ou PR ne sont **pas** des exécutions M3. Le contexte technique détaillé est dans [PROJECT_CONTEXT.md](../context/PROJECT_CONTEXT.md) (branche M2, non encore fusionnée dans `main` lors de M3).

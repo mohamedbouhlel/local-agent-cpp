@@ -91,6 +91,9 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [`2026-11-05-ui-3-final-review.md`](reports/2026-11-05-ui-3-final-review.md) | Revue finale UI-3, vérification des frontières de flux terminal, tests propres et publication |
 | [`2026-11-05-tui-0-architecture-revision.md`](reports/2026-11-05-tui-0-architecture-revision.md) | TUI-0 — étude comparative, architecture cible proposée, impacts UI-4 à UI-8 et décisions encore ouvertes |
 | [`2026-11-05-tui-0-poc-protocol.md`](reports/2026-11-05-tui-0-poc-protocol.md) | Complément TUI-0 — arbitrages worker/queue et protocole éliminatoire du POC FTXUI/ncursesw |
+| [`2026-11-05-tui-poc-1-backend-comparison.md`](reports/2026-11-05-tui-poc-1-backend-comparison.md) | TUI-POC-1 — comparaison expérimentale isolée de FTXUI et ncursesw sur PTY; mesures et limites |
+| [`2026-11-05-tui-poc-2-functional-comparison.md`](reports/2026-11-05-tui-poc-2-functional-comparison.md) | TUI-POC-2 — parité fonctionnelle, harness élargi et recommandation ncursesw avec limites |
+| [`2026-11-05-tui-poc-closure-and-ncurses-qualification.md`](reports/2026-11-05-tui-poc-closure-and-ncurses-qualification.md) | Clôture POC-1/2 — revalidation PTY, mesures rejouées et qualification complémentaire ncursesw |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

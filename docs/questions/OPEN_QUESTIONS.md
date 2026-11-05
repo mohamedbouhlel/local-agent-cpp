@@ -167,6 +167,12 @@ fichier temporaire nommé puis `renameat`. Le descripteur est vérifié avant la
 publication et l'identité publiée après, mais un processus pouvant écrire dans
 le répertoire peut substituer le nom temporaire avant `renameat`; la
 vérification peut alors signaler l'écart après que la cible a déjà changé.
+**Reproduction locale observée** : un watcher a remplacé une fois le temporaire
+pendant `write_workspace(..., overwrite=true)` avec un contenu témoin. L'appel
+a levé `published file differs from verified temporary file`, tandis que la
+cible contenait déjà `attacker-controlled`. Le probe était un programme
+ponctuel sous `/tmp`, compilé avec `src/workspace_write.cpp`; il n'est pas un
+test versionné ni une preuve d'exhaustivité.
 
 Une publication atomique de remplacement requiert actuellement un nom source
 dans le répertoire. Dans le modèle actuel, où d'autres processus du même

@@ -17,13 +17,16 @@ set -a; source .env; set +a
 ## Test
 
 > Les **118 déclarations de cas** et les **7 groupes CTest Linux** ont été
-> vérifiés par lecture du dépôt au SHA `465faae586c8f268d276597df05724431c750085`. Les **403 assertions et
-> 7/7 réussis** sont des résultats historiques **rapportés**, non rejoués
-> pendant M4. Voir [PROJECT_CONTEXT.md](docs/context/PROJECT_CONTEXT.md).
+> vérifiés par lecture du dépôt au SHA `465faae586c8f268d276597df05724431c750085`.
+> Au 2026-11-05, le harnais a été relancé sur la branche de correctif :
+> **118 cas, 407 assertions, zéro échec**; CTest : **7/7 groupes réussis**.
+> Voir [PROJECT_CONTEXT.md](docs/context/PROJECT_CONTEXT.md) pour les
+> observations historiques antérieures.
 
 Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
 `test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
-(`mock_http_server.*`). 118 cas / 403 assertions répartis en 7 groupes : `sse`,
+(`mock_http_server.*`). 118 cas / 407 assertions au dernier relevé du
+2026-11-05, répartis en 7 groupes : `sse`,
 `workspace`, `sandbox`, `http`, `agent`, `repl`, `mock`.
 Désactivée par défaut, elle ne pèse jamais sur l'exécutable de production ;
 activation explicite :
@@ -131,15 +134,14 @@ directement (voir Architecture) sans relister les .cpp.
   et la CLI imprime un récapitulatif `[execution: N outil(s) reussi(s), M en
   echec]`. Un échec de protocole est signalé comme tel (`AgentError`), jamais
   masqué par une réponse de succès.
-- `write_file` : les créations sans écrasement utilisent sous Linux un fichier
-  temporaire anonyme (`O_TMPFILE`) publié par `linkat(AT_EMPTY_PATH)` ; cela
-  supprime la substitution d'un nom temporaire avant publication. Les
-  écrasements (`overwrite: true`) utilisent encore un nom temporaire et
-  `renameat`. Dans les deux cas, le descripteur est relu avant publication et
-  l'identité publiée est vérifiée après publication ; cette vérification
-  détecte certains changements mais ne protège pas contre un processus
-  concurrent qui peut modifier le workspace. L'opération ne garantit pas la
-  durabilité après crash (pas de `fsync`). Voir USAGE.md.
+- `write_file` : l'écrasement est temporairement désactivé jusqu'à ce que
+  l'accès au workspace utilise une identité système isolée. Les créations
+  sous Linux utilisent un fichier temporaire anonyme (`O_TMPFILE`) publié par
+  `linkat(AT_EMPTY_PATH)`, sans écrasement. Le descripteur est relu avant
+  publication et l'identité publiée est vérifiée ensuite. Un autre processus
+  du même compte reste hors de la barrière Landlock et peut modifier le
+  workspace. L'opération ne garantit pas la durabilité après crash (pas de
+  `fsync`). Voir USAGE.md.
 - Timeouts (Phase R0) : `CURLOPT_TIMEOUT` (total) est complété par
   `CURLOPT_CONNECTTIMEOUT` (établissement de connexion, borné à `min(timeout,
   10 s)`). Un timeout (`CURLE_OPERATION_TIMEDOUT`) produit un message distinct
@@ -162,12 +164,10 @@ directement (voir Architecture) sans relister les .cpp.
   Agent::send, borné par max_tool_iterations = 5). Quatre outils sandboxés
   dans workspace/ sont exposés au modèle : list_files, read_file,
   search_files et write_file. write_file écrit de façon autonome (aucune
-  confirmation humaine), mais refuse d'écraser un fichier existant si
-  overwrite n'est pas explicitement true. L'écriture est atomique : contenu
-  écrit dans un fichier temporaire du même répertoire puis publié via
-  linkat() sans écrasement ou renameat() avec écrasement. Compromis assumé : si la cible écrasée avait des hard links,
-  rename() casse le lien — le chemin écrit pointe vers le nouvel inode, les
-  autres liens conservent l'ancien contenu.
+  confirmation humaine), crée uniquement des fichiers absents et refuse
+  explicitement `overwrite: true` jusqu'à l'isolation de l'identité système.
+  La création est atomique : contenu écrit dans un inode temporaire anonyme,
+  puis publié sans écrasement par `linkat(AT_EMPTY_PATH)`.
 - Erreurs réseau : si le serveur local est injoignable (curl échoue), 
   afficher un message clair mentionnant LLM_BASE_URL plutôt que de laisser
   remonter une exception brute.

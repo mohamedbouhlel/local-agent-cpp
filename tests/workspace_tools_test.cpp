@@ -142,6 +142,11 @@ TEST(workspace, registre_quatre_outils_et_schemas)
     // std::map => ordre alphabetique deterministe.
     const std::vector<std::string> expected = {"list_files", "read_file", "search_files", "write_file"};
     CHECK(names == expected);
+    for (const auto& schema : schemas) {
+        if (schema.at("function").at("name") == "write_file") {
+            CHECK(!schema.at("function").at("parameters").at("properties").contains("overwrite"));
+        }
+    }
 }
 
 TEST(workspace, registre_double_enregistrement_rejete)
@@ -202,12 +207,12 @@ TEST(workspace, garde_fou_overwrite)
     call(registry, "write_file", R"({"path":"a.txt","content":"v1"})");
 
     CHECK_THROWS_MSG(call(registry, "write_file", R"({"path":"a.txt","content":"v2"})"),
-                     "file already exists: a.txt (pass overwrite: true to replace it)");
+                     "file already exists: a.txt (overwriting is disabled");
     CHECK_EQ(call(registry, "read_file", R"({"path":"a.txt"})"), std::string("v1"));
 
-    CHECK_EQ(call(registry, "write_file", R"({"path":"a.txt","content":"v2","overwrite":true})"),
-             std::string("wrote 2 bytes to a.txt (overwrote existing file)"));
-    CHECK_EQ(call(registry, "read_file", R"({"path":"a.txt"})"), std::string("v2"));
+    CHECK_THROWS_MSG(call(registry, "write_file", R"({"path":"a.txt","content":"v2","overwrite":true})"),
+                     "overwrite is temporarily disabled");
+    CHECK_EQ(call(registry, "read_file", R"({"path":"a.txt"})"), std::string("v1"));
 }
 
 TEST(workspace, creation_concurrente_sans_overwrite_ne_remplace_pas)
@@ -255,11 +260,13 @@ TEST(workspace, ecriture_atomique_sans_residu)
     call(registry, "write_file", R"({"path":"a.txt","content":"v1"})");
     CHECK_EQ(find_temp_residue(workspace.path()), std::string(""));
 
-    call(registry, "write_file", R"({"path":"a.txt","content":"v2","overwrite":true})");
+    CHECK_THROWS_MSG(call(registry, "write_file", R"({"path":"a.txt","content":"v2","overwrite":true})"),
+                     "overwrite is temporarily disabled");
     CHECK_EQ(find_temp_residue(workspace.path()), std::string(""));
+    CHECK_EQ(read_text(workspace.path() / "a.txt"), std::string("v1"));
 }
 
-TEST(workspace, permissions_preservees_a_lecrasement)
+TEST(workspace, overwrite_refuse_preserve_contenu_et_permissions)
 {
     tests::TempDir workspace("perms");
     auto registry = make_registry(workspace.path());
@@ -271,10 +278,11 @@ TEST(workspace, permissions_preservees_a_lecrasement)
                                  std::filesystem::perm_options::replace);
     const auto before = std::filesystem::status(target).permissions();
 
-    call(registry, "write_file", R"({"path":"a.txt","content":"v2","overwrite":true})");
+    CHECK_THROWS_MSG(call(registry, "write_file", R"({"path":"a.txt","content":"v2","overwrite":true})"),
+                     "overwrite is temporarily disabled");
 
     CHECK(std::filesystem::status(target).permissions() == before);
-    CHECK_EQ(read_text(target), std::string("v2"));
+    CHECK_EQ(read_text(target), std::string("v1"));
 }
 
 // ---------------------------------------------------------------------------
@@ -329,9 +337,9 @@ TEST(workspace, chemin_avec_double_point)
 TEST(workspace, ecriture_directe_refuse_chemins_invalides)
 {
     tests::TempDir workspace("direct_write_paths");
-    CHECK_THROWS_MSG(write_workspace(workspace.path(), "../outside.txt", "x", false), "must not contain");
-    CHECK_THROWS_MSG(write_workspace(workspace.path(), workspace.path() / "absolute.txt", "x", false), "invalid workspace path");
-    CHECK_THROWS_MSG(write_workspace(workspace.path(), std::filesystem::path(std::string("a\0b", 3)), "x", false), "invalid workspace path");
+    CHECK_THROWS_MSG(write_workspace(workspace.path(), "../outside.txt", "x"), "must not contain");
+    CHECK_THROWS_MSG(write_workspace(workspace.path(), workspace.path() / "absolute.txt", "x"), "invalid workspace path");
+    CHECK_THROWS_MSG(write_workspace(workspace.path(), std::filesystem::path(std::string("a\0b", 3)), "x"), "invalid workspace path");
     auto registry = make_registry(workspace.path());
     CHECK_THROWS_MSG(call(registry, "read_file", R"({"path":"a\u0000b"})"), "must not contain NUL");
 }

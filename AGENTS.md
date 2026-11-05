@@ -72,7 +72,8 @@ directement (voir Architecture) sans relister les .cpp.
   impose un ruleset Landlock en refusant le démarrage si le noyau ou les
   permissions ne permettent pas son activation. L'agent peut lire et écrire
   dans le workspace, qui doit être un vrai répertoire et non un lien symbolique ;
-  la règle est attachée à un descripteur ouvert avec `O_NOFOLLOW`. Hors du
+  les fichiers du workspace ne sont pas exécutables par l'agent ; la règle est
+  attachée à un descripteur ouvert avec `O_NOFOLLOW`. Hors du
   workspace, la lecture est autorisée sous `/etc/ssl/certs` et
   `/usr/share/ca-certificates`, ainsi que sur `/etc/ssl/openssl.cnf`,
   `/etc/hosts`, `/etc/resolv.conf` et `/etc/nsswitch.conf` lorsqu'ils existent.

@@ -103,7 +103,8 @@ utiliser ce mécanisme comme frontière de sécurité face à un processus pouva
 modifier le workspace simultanément.
 
 Sous Linux, le processus active également un confinement filesystem Landlock
-avant le REPL. Il autorise toutes les opérations dans le workspace. En dehors,
+avant le REPL. Il autorise les opérations nécessaires aux outils dans le
+workspace et en refuse l'exécution de fichiers. En dehors,
 la lecture est autorisée sous `/etc/ssl/certs` et
 `/usr/share/ca-certificates`, ainsi que sur `/etc/ssl/openssl.cnf`,
 `/etc/hosts`, `/etc/resolv.conf` et `/etc/nsswitch.conf` lorsqu'ils existent.

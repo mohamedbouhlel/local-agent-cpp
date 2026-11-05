@@ -2,11 +2,11 @@
 
 Ce guide suppose que le projet est déjà compilé. Pour l'installation, les
 dépendances système et le build, voir [README.md](README.md) — ce document
-ne les duplique pas.
+détaille l'usage et la sécurité, sans reprendre les prérequis.
 
 ## 1. Vue d'ensemble
 
-`agent-cpp` est un agent IA minimal en C++ : il lit une question au clavier,
+`agent-cpp` est un agent IA minimal en C++ sous Linux avec Landlock : il lit une question au clavier,
 l'envoie à un serveur LLM local compatible OpenAI
 (`POST /v1/chat/completions`, en streaming SSE) et affiche la réponse au fur et
 à mesure. Le modèle
@@ -88,6 +88,33 @@ L'agent fonctionne en boucle lecture → envoi → affichage :
 - L'historique de conversation est conservé d'un tour à l'autre (voir
   section 6 pour la troncature).
 
+### Saisie multiligne
+
+Le REPL accepte également un bloc de plusieurs lignes : la **ligne exacte**
+`:multi` bascule en mode multiligne, puis la **ligne exacte** `:end`
+termine le bloc et provoque un seul envoi au modèle.
+
+```text
+> :multi
+... Analyse les éléments suivants :
+... première ligne
+... seconde ligne
+... :end
+```
+
+Les espaces, lignes vides et tabulations sont conservés ; dans le bloc,
+une fin de ligne CRLF est normalisée en LF, sans saut de ligne final artificiel.
+Un bloc de **zéro ligne** n'est pas envoyé, mais un bloc comportant des lignes
+vides est transmis. `exit` à l'intérieur du bloc est du texte ; en mode
+simple, seul `exit` exact quitte le REPL. Un EOF/Ctrl-D avant `:end` abandonne
+le bloc **sans envoi** et termine la boucle. La ligne `:end` en mode simple est
+une entrée ordinaire. En mode multiligne, une ligne littérale égale à `:end`
+ne peut pas être incluse dans le bloc (limite approuvée).
+
+La source normative est la
+[spécification REPL-01 à REPL-09](docs/specifications/repl-multiline-requirements.md) ;
+l'implémentation se trouve dans `src/prompt_reader.cpp` et `src/main.cpp`.
+
 Les outils ne sont **pas** invocables manuellement depuis le REPL : c'est le
 LLM qui décide de les appeler pendant qu'il compose sa réponse.
 
@@ -143,12 +170,15 @@ l'identité du fichier publié à celle du temporaire vérifié et signale une
 erreur si elles diffèrent. Cette détection reste sujette à une course et, en
 cas d'erreur, la cible peut déjà avoir été modifiée.
 
-Un lien physique placé dans le workspace vers un fichier accessible hors de
-celui-ci est un fichier régulier pour ces outils : `read_file` et
-`search_files` peuvent en lire le contenu. Le filtrage des liens symboliques
-ne constitue donc pas une isolation contre les liens physiques.
-Un essai local a aussi montre qu'un montage du workspace sous `bwrap` ne
-supprime pas cette limite ; voir `docs/reports/2026-11-04-isolation-systeme.md`.
+**Liens physiques — historique et état courant à distinguer :** un essai
+historique a montré qu'un montage isolé du workspace sous `bwrap` ne
+supprime pas l'accès à un fichier externe déjà lié physiquement au
+workspace ([rapport du 4 novembre](docs/reports/2026-11-04-isolation-systeme.md)).
+Ce constat ne signifie **pas** que les outils de lecture actuels acceptent
+ces fichiers : `read_file` et `search_files` rejettent désormais les fichiers
+dont `st_nlink != 1` (`src/workspace_tools.cpp`,
+`src/workspace_search.cpp`). Cela ne garantit pas une isolation complète
+contre les manipulations concurrentes d'autres processus du même compte.
 
 Le dossier `workspace/` est résolu relativement au répertoire de lancement
 (`std::filesystem::absolute("workspace")`) et créé automatiquement s'il
@@ -266,6 +296,22 @@ suffit de les déposer dans ce dossier.
 
 ## 7. Dépannage
 
+### Échec du confinement au démarrage
+
+Si Landlock est indisponible, si les règles ne peuvent pas être activées ou si
+la racine `workspace/` est un lien symbolique, le programme refuse de démarrer
+avec `Filesystem sandbox setup failed: ...`. Vérifier les prérequis Linux
+et le répertoire depuis lequel l'agent est lancé. Aucun mode de démarrage
+sans confinement n'est fourni par l'application courante.
+
+### Réponse SSE incomplète
+
+Une réponse sans marqueur `[DONE]`, une réponse terminée avec
+`finish_reason="length"` ou un appel d'outil invalide déclenche un
+`AgentError`, signalé dans la CLI par `Reponse incomplete ou invalide du modele`.
+Le texte éventuellement affiché progressivement avant l'erreur ne doit pas être
+interprété comme une réponse validée.
+
 ### Serveur LLM local injoignable
 
 Si `curl` ne parvient pas à joindre l'endpoint (serveur éteint, mauvaise
@@ -279,15 +325,17 @@ Impossible de contacter LLM_BASE_URL (<url configurée>): HTTP POST failed: <dé
 Vérifiez que le serveur tourne et que `LLM_BASE_URL` pointe vers le bon
 endpoint (`/v1/chat/completions`).
 
-Une réponse HTTP hors plage 2xx, ou une réponse dont le JSON est
-inattendu, produit un message générique :
+Une réponse HTTP hors plage 2xx déclenche `HttpError` et est signalée
+par la branche « Impossible de contacter LLM_BASE_URL ».
+Une réponse JSON inattendue ou un dépassement de la limite d'itérations
+d'outils peuvent déclencher le message générique :
 
 ```
 Reponse du serveur inattendue: <détail>
 ```
 
-Le même message générique apparaît si la boucle d'outils dépasse
-`max_tool_iterations` (`tool call loop exceeded maximum iterations`).
+Le dépassement de `max_tool_iterations` produit notamment
+`tool call loop exceeded maximum iterations`.
 
 ### Fichier binaire demandé via read_file
 

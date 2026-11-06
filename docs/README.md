@@ -102,6 +102,7 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [`2026-11-06-tui-3-ncursesw-integration.md`](reports/2026-11-06-tui-3-ncursesw-integration.md) | TUI-3 — infrastructure plein écran ncursesw, intégration `AgentWorker`, essais PTY et limites |
 | [2026-11-06-tui-3-recovery-validation.md](reports/2026-11-06-tui-3-recovery-validation.md) | TUI-3 — restauration depuis les événements source et revalidation après récupération |
 | [2026-11-06-tui-3-final-review.md](reports/2026-11-06-tui-3-final-review.md) | TUI-3 — revue contradictoire après récupération, résultats et risques résiduels |
+| [2026-11-06-tui-3-multiline-rendering-fix.md](reports/2026-11-06-tui-3-multiline-rendering-fix.md) | TUI-3 — préfixe de rôle unique par message, indentation des lignes suivantes et tests de wrapping/streaming |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

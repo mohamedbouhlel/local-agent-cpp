@@ -4,6 +4,7 @@
 #include <cwchar>
 #include <iterator>
 #include <string>
+#include <utility>
 
 namespace agent::ui {
 namespace {
@@ -33,27 +34,31 @@ int width_of(std::string_view text)
     return width;
 }
 
-std::vector<std::string> wrap(std::string text, int columns)
+std::vector<std::string> wrap(std::string_view text,
+                              std::string_view first_prefix,
+                              std::string_view continuation_prefix,
+                              int columns)
 {
     std::vector<std::string> result;
     if (columns <= 0) return result;
     std::mbstate_t state{};
-    int width = 0;
-    std::size_t start = 0;
+    std::string row(first_prefix);
+    int width = width_of(first_prefix);
     for (std::size_t i = 0; i < text.size();) {
         wchar_t wc{};
         const auto n = std::mbrtowc(&wc, text.data() + i, text.size() - i, &state);
         const std::size_t count = n == static_cast<std::size_t>(-1) || n == static_cast<std::size_t>(-2) ? 1 : (n == 0 ? 1 : n);
         const int glyph_width = n == static_cast<std::size_t>(-1) || n == static_cast<std::size_t>(-2) ? 1 : std::max(0, ::wcwidth(wc));
         if (width > 0 && width + glyph_width > columns) {
-            result.emplace_back(text.substr(start, i - start));
-            start = i;
-            width = 0;
+            result.push_back(std::move(row));
+            row.assign(continuation_prefix);
+            width = width_of(continuation_prefix);
         }
         width += glyph_width;
+        row.append(text.substr(i, count));
         i += count;
     }
-    result.emplace_back(text.substr(start));
+    result.push_back(std::move(row));
     return result;
 }
 }
@@ -61,7 +66,7 @@ std::vector<std::string> wrap(std::string text, int columns)
 void TuiView::set_status(std::string_view status) { status_ = status; }
 void TuiView::add_user_message(std::string text)
 {
-    const auto old_rows = conversation_rows(last_columns_, true).size();
+    const auto old_rows = rendered_conversation_rows(last_columns_).size();
     messages_.push_back({TuiMessageKind::user, std::move(text), false});
     active_assistant_.reset();
     preserve_anchor_after_content_change(old_rows);
@@ -72,13 +77,13 @@ void TuiView::append_assistant_delta(std::string_view text)
         messages_.push_back({TuiMessageKind::assistant, {}, false});
         active_assistant_ = messages_.size() - 1;
     }
-    const auto old_rows = conversation_rows(last_columns_, true).size();
+    const auto old_rows = rendered_conversation_rows(last_columns_).size();
     messages_[*active_assistant_].text.append(text);
     preserve_anchor_after_content_change(old_rows);
 }
 void TuiView::replace_assistant_response(std::string text)
 {
-    const auto old_rows = conversation_rows(last_columns_, true).size();
+    const auto old_rows = rendered_conversation_rows(last_columns_).size();
     if (!active_assistant_) {
         messages_.push_back({TuiMessageKind::assistant, std::move(text), false});
         active_assistant_ = messages_.size() - 1;
@@ -95,13 +100,13 @@ void TuiView::finish_assistant(bool complete)
 }
 void TuiView::add_notice(std::string_view text)
 {
-    const auto old_rows = conversation_rows(last_columns_, true).size();
+    const auto old_rows = rendered_conversation_rows(last_columns_).size();
     messages_.push_back({TuiMessageKind::notice, std::string(text), false});
     preserve_anchor_after_content_change(old_rows);
 }
 void TuiView::scroll_up()
 {
-    const auto row_count = conversation_rows(last_columns_, true).size();
+    const auto row_count = rendered_conversation_rows(last_columns_).size();
     const auto maximum = row_count > static_cast<std::size_t>(last_chat_height_)
         ? row_count - static_cast<std::size_t>(last_chat_height_) : 0;
     if (maximum == 0) return;
@@ -122,23 +127,25 @@ int TuiView::chat_height_for(int rows) const noexcept { return std::max(1, rows 
 void TuiView::preserve_anchor_after_content_change(std::size_t previous_rows)
 {
     if (follow_bottom_) return;
-    const auto now = conversation_rows(last_columns_, true).size();
+    const auto now = rendered_conversation_rows(last_columns_).size();
     scroll_offset_ += now > previous_rows ? now - previous_rows : 0;
 }
-std::vector<std::string> TuiView::conversation_rows(int columns, bool) const
+std::vector<std::string> TuiView::rendered_conversation_rows(int columns) const
 {
     std::vector<std::string> result;
     const int usable = std::max(1, columns - 2);
     for (const auto& message : messages_) {
-        const char* prefix = message.kind == TuiMessageKind::user ? "You: " :
-                            message.kind == TuiMessageKind::assistant ? "Agent: " : "* ";
-        const std::string label(prefix);
-        for (const auto& line : lines(message.text)) {
-            std::string row = label + line;
-            if (message.incomplete) row += " [incomplete]";
-            auto wrapped = wrap(std::move(row), usable);
+        const std::string prefix = message.kind == TuiMessageKind::user ? "You: " :
+                                   message.kind == TuiMessageKind::assistant ? "Agent: " : "* ";
+        const std::string continuation(prefix.size(), ' ');
+        const auto message_lines = lines(message.text);
+        for (std::size_t line_index = 0; line_index < message_lines.size(); ++line_index) {
+            const auto first_prefix = line_index == 0 ? std::string_view(prefix)
+                                                       : std::string_view(continuation);
+            auto wrapped = wrap(message_lines[line_index], first_prefix, continuation, usable);
             result.insert(result.end(), std::make_move_iterator(wrapped.begin()), std::make_move_iterator(wrapped.end()));
         }
+        if (message.incomplete) result.push_back(continuation + "[incomplete]");
     }
     return result;
 }
@@ -155,7 +162,7 @@ void TuiView::draw(WINDOW* window, bool unicode, std::string_view input, std::si
     const int chat_top = std::min(2, rows - 1);
     const int composer_top = std::max(chat_top, rows - (rows >= 7 ? 4 : 1));
     const int chat_height = std::max(0, composer_top - chat_top);
-    const auto content = conversation_rows(cols, unicode);
+    const auto content = rendered_conversation_rows(cols);
     if (follow_bottom_) scroll_offset_ = 0;
     else scroll_offset_ = std::min(scroll_offset_, content.size() > static_cast<std::size_t>(chat_height)
         ? content.size() - static_cast<std::size_t>(chat_height) : 0);

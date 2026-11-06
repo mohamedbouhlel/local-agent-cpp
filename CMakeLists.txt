@@ -31,6 +31,7 @@ add_library(agent_core STATIC
   src/ui/rich_renderer.cpp
   src/ui/terminal_capabilities.cpp
   src/ui/terminal_text_sanitizer.cpp
+  src/ui/agent_worker.cpp
   src/workspace_tools.cpp
   src/workspace_search.cpp
   src/workspace_write.cpp

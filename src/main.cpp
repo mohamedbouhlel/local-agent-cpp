@@ -7,6 +7,8 @@
 #include "ui/console_session.hpp"
 #include "ui/presentation_controller.hpp"
 #include "ui/terminal_capabilities.hpp"
+#include "ui/tui_application.hpp"
+#include "ui/ui_options.hpp"
 #include "workspace_tools.hpp"
 
 #include <cstdlib>
@@ -55,14 +57,38 @@ AgentConfig load_config()
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    agent::ui::InterfaceMode interface_mode;
+    try {
+        interface_mode = agent::ui::parse_interface_mode(argc, argv);
+    } catch (const std::exception& error) {
+        std::cerr << "Invalid interface option: " << error.what() << '\n';
+        return 2;
+    }
     auto config = load_config();
-    ToolRegistry tools;
+    auto tools = std::make_shared<ToolRegistry>();
     std::filesystem::path workspace_root;
     try {
         workspace_root = prepare_workspace_root(std::filesystem::absolute("workspace"));
-        register_workspace_tools(tools, workspace_root);
+        register_workspace_tools(*tools, workspace_root);
+    } catch (const std::exception& error) {
+        std::cerr << "Filesystem sandbox setup failed: " << error.what() << '\n';
+        return 1;
+    }
+
+    if (interface_mode == agent::ui::InterfaceMode::tui) {
+        try {
+            return agent::ui::TuiApplication(config, tools, [workspace_root] {
+                apply_filesystem_sandbox(workspace_root);
+            }).run();
+        } catch (const std::exception& error) {
+            std::cerr << "TUI failed: " << error.what() << '\n';
+            return 1;
+        }
+    }
+
+    try {
         apply_filesystem_sandbox(workspace_root);
     } catch (const std::exception& error) {
         std::cerr << "Filesystem sandbox setup failed: " << error.what() << '\n';
@@ -72,7 +98,7 @@ int main()
     auto renderer = agent::ui::make_console_renderer(
         std::cout, std::cerr, agent::ui::detect_terminal_capabilities());
     auto presentation = std::make_shared<agent::ui::PresentationController>(std::move(renderer));
-    Agent agent(tools, config, presentation);
+    Agent agent(*tools, config, presentation);
 
     std::cout << "agent-cpp ready. Type 'exit' to quit.\n";
 

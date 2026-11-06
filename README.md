@@ -9,6 +9,7 @@ Agent conversationnel en ligne de commande, écrit en C++20, qui échange en str
 - Linux avec prise en charge de Landlock et autorisation d'activer les règles filesystem (sinon échec au démarrage).
 - CMake >= 3.20 et compilateur C++20.
 - libcurl (dépendance système), par exemple sous Debian/Ubuntu : `sudo apt install libcurl4-openssl-dev`.
+- ncursesw (dépendance système du binaire, par exemple sous Debian/Ubuntu : `sudo apt install libncurses-dev`).
 - Accès à la récupération de `nlohmann/json` v3.11.3 pendant la configuration CMake (`FetchContent`).
 - Serveur LLM répondant au protocole compatible OpenAI en streaming SSE. llama.cpp, Ollama, LM Studio et vLLM sont des **exemples**, pas des environnements validés dans ce document.
 
@@ -27,6 +28,10 @@ cp .env.example .env
 set -a; . ./.env; set +a
 ./build/agent
 ```
+
+La CLI classique est le mode par défaut. Pour ouvrir l'interface plein écran
+ncursesw depuis un terminal interactif, lancer `./build/agent --ui=tui` ;
+`./build/agent --ui=classic` sélectionne explicitement le mode classique.
 
 La configuration est chargée depuis **l'environnement du processus** (`std::getenv`) ; le binaire ne lit pas directement `.env`. Les valeurs par défaut figurent dans [USAGE.md](USAGE.md#2-configuration) et `.env.example`. `workspace/` est relatif **au répertoire de lancement** ; le programme crée ce répertoire s'il manque et rejette une racine qui est un lien symbolique.
 

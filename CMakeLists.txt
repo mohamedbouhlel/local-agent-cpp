@@ -7,6 +7,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # libcurl : dépendance système (voir README pour l'installation)
 find_package(CURL REQUIRED)
+set(CURSES_NEED_WIDE TRUE)
+find_package(Curses REQUIRED)
+find_package(Threads REQUIRED)
 
 # nlohmann/json : header-only, récupéré via FetchContent (pas de dépendance système)
 include(FetchContent)
@@ -37,12 +40,21 @@ add_library(agent_core STATIC
   src/workspace_write.cpp
 )
 target_include_directories(agent_core PUBLIC include)
-target_link_libraries(agent_core PUBLIC CURL::libcurl nlohmann_json::nlohmann_json)
+target_link_libraries(agent_core PUBLIC CURL::libcurl nlohmann_json::nlohmann_json Threads::Threads)
+
+add_library(agent_tui STATIC
+  src/ui/terminal_session.cpp
+  src/ui/tui_view.cpp
+  src/ui/tui_event_loop.cpp
+  src/ui/tui_application.cpp
+)
+target_include_directories(agent_tui PUBLIC include ${CURSES_INCLUDE_DIRS})
+target_link_libraries(agent_tui PUBLIC agent_core ${CURSES_LIBRARIES})
 
 add_executable(agent
   src/main.cpp
 )
-target_link_libraries(agent PRIVATE agent_core)
+target_link_libraries(agent PRIVATE agent_core agent_tui)
 
 # Harness de tests, desactive par defaut : l'executable de production n'en
 # depend jamais. Activer explicitement avec -DAGENT_BUILD_TESTS=ON.

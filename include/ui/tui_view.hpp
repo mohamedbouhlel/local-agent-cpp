@@ -31,6 +31,10 @@ public:
     void finish_assistant(bool complete);
     void add_notice(std::string_view safe_text);
 
+    // Formatted transcript rows at the requested terminal width. Exposed so
+    // wrapping and multiline role-label behavior can be tested deterministically.
+    std::vector<std::string> rendered_conversation_rows(int columns) const;
+
     void scroll_up();
     void scroll_down();
     void on_resize(int columns, int chat_height);
@@ -42,7 +46,6 @@ public:
     std::size_t draw_count() const noexcept { return draw_count_; }
 
 private:
-    std::vector<std::string> conversation_rows(int columns, bool unicode_enabled) const;
     int chat_height_for(int rows) const noexcept;
     void preserve_anchor_after_content_change(std::size_t previous_rows);
 

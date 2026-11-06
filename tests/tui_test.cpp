@@ -106,10 +106,95 @@ TEST(tui3, viewport_stays_anchored_and_returns_to_follow_mode)
 TEST(tui3, replaces_partial_response_instead_of_appending)
 {
     agent::ui::TuiView view;
-    view.append_assistant_delta("partial");
-    view.replace_assistant_response("complete");
-    CHECK_EQ(view.messages().back().text, std::string("complete"));
+    view.append_assistant_delta("part");
+    view.append_assistant_delta("ial\nfrag");
+    view.replace_assistant_response("complete\nanswer");
+    CHECK_EQ(view.messages().size(), std::size_t(1));
+    CHECK_EQ(view.messages().back().text, std::string("complete\nanswer"));
     CHECK(!view.messages().back().incomplete);
+    CHECK(view.rendered_conversation_rows(80)
+          == std::vector<std::string>({"Agent: complete", "       answer"}));
+}
+
+TEST(tui3, multiline_messages_label_only_the_first_physical_line)
+{
+    agent::ui::TuiView view;
+    view.add_user_message("first\n\n  third\n");
+    view.append_assistant_delta("reply\nsecond");
+
+    CHECK(view.rendered_conversation_rows(80) == std::vector<std::string>({
+        "You: first", "     ", "       third", "     ",
+        "Agent: reply", "       second",
+    }));
+    CHECK_EQ(view.messages().size(), std::size_t(2));
+    CHECK_EQ(view.messages()[0].text, std::string("first\n\n  third\n"));
+    CHECK_EQ(view.messages()[1].text, std::string("reply\nsecond"));
+}
+
+TEST(tui3, incomplete_multiline_message_preserves_blank_rows)
+{
+    agent::ui::TuiView view;
+    view.append_assistant_delta("partial\n\n");
+    view.finish_assistant(false);
+
+    CHECK_EQ(view.messages().back().text, std::string("partial\n\n"));
+    CHECK(view.rendered_conversation_rows(80)
+          == std::vector<std::string>({"Agent: partial", "       ", "       ", "       [incomplete]"}));
+}
+
+TEST(tui3, sse_fragment_boundaries_do_not_change_multiline_rendering)
+{
+    agent::ui::TuiView view;
+    view.append_assistant_delta("hel");
+    view.append_assistant_delta("lo\n");
+    view.append_assistant_delta("wo");
+    view.append_assistant_delta("rld");
+
+    CHECK_EQ(view.messages().size(), std::size_t(1));
+    CHECK_EQ(view.messages().back().text, std::string("hello\nworld"));
+    CHECK(view.rendered_conversation_rows(80)
+          == std::vector<std::string>({"Agent: hello", "       world"}));
+}
+
+TEST(tui3, wrapped_continuations_are_indented_under_the_message_text)
+{
+    agent::ui::TuiView view;
+    view.append_assistant_delta("abcdefghijklm");
+
+    CHECK(view.rendered_conversation_rows(12)
+          == std::vector<std::string>({"Agent: abc", "       def", "       ghi", "       jkl", "       m"}));
+    CHECK_EQ(view.messages().back().text, std::string("abcdefghijklm"));
+}
+
+TEST(tui3, resize_during_streaming_reflows_without_changing_message_text)
+{
+    agent::ui::TuiView view;
+    view.on_resize(40, 10);
+    view.append_assistant_delta("alpha beta gamma");
+    const auto before = view.messages().back().text;
+    CHECK(view.rendered_conversation_rows(40) == std::vector<std::string>({"Agent: alpha beta gamma"}));
+
+    view.on_resize(20, 4);
+    view.append_assistant_delta(" delta");
+    CHECK(view.rendered_conversation_rows(20)
+          == std::vector<std::string>({"Agent: alpha beta ", "       gamma delta"}));
+    CHECK_EQ(view.messages().back().text, before + " delta");
+}
+
+TEST(tui3, consecutive_turns_keep_role_and_message_boundaries)
+{
+    agent::ui::TuiView view;
+    view.add_user_message("question one");
+    view.append_assistant_delta("answer one");
+    view.finish_assistant(true);
+    view.add_user_message("question two");
+    view.append_assistant_delta("answer two");
+
+    CHECK(view.rendered_conversation_rows(80) == std::vector<std::string>({
+        "You: question one", "Agent: answer one",
+        "You: question two", "Agent: answer two",
+    }));
+    CHECK_EQ(view.messages().size(), std::size_t(4));
 }
 
 TEST(tui3, real_agent_streams_through_fullscreen_pty_and_restores_terminal)

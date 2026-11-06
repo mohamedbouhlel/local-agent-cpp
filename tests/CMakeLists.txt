@@ -17,16 +17,24 @@ add_executable(agent_tests
   agent_streaming_test.cpp
   agent_e2e_test.cpp
   agent_worker_test.cpp
+  tui_test.cpp
   prompt_reader_test.cpp
 )
 
-target_link_libraries(agent_tests PRIVATE agent_core Threads::Threads)
+target_link_libraries(agent_tests PRIVATE agent_core agent_tui Threads::Threads)
 target_compile_options(agent_tests PRIVATE -Wall -Wextra -Wpedantic)
 
 # Un test CTest par groupe : resultats lisibles par groupe et code de retour
 # distinct par groupe. Le TIMEOUT transforme un eventuel blocage en ECHEC
 # exploitable au lieu d'un job CI suspendu (constat R-01).
-set(test_groups sse workspace http agent ui ui3 tui2 repl mock)
+add_executable(tui_pty_driver tui_pty_driver.cpp)
+target_link_libraries(tui_pty_driver PRIVATE agent_tui Threads::Threads)
+find_library(UTIL_LIBRARY util)
+if(UTIL_LIBRARY)
+  target_link_libraries(agent_tests PRIVATE ${UTIL_LIBRARY})
+endif()
+
+set(test_groups sse workspace http agent ui ui3 tui2 tui3 repl mock)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   list(APPEND test_groups sandbox)
 endif()

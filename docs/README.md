@@ -99,6 +99,9 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [`2026-11-06-tui-1-final-review.md`](reports/2026-11-06-tui-1-final-review.md) | TUI-1 — revue contradictoire, couverture renforcée, validation propre et limites avant publication |
 | [`2026-11-06-tui-2-real-agent-async-bridge.md`](reports/2026-11-06-tui-2-real-agent-async-bridge.md) | TUI-2 — pont FIFO asynchrone testé avec le vrai `Agent::send()`, issue conservée hors file, saturation et fermeture documentées |
 | [`2026-11-06-tui-2-final-review.md`](reports/2026-11-06-tui-2-final-review.md) | TUI-2 — revue contradictoire, garde self-join et validation complète/ThreadSanitizer avant publication |
+| [`2026-11-06-tui-3-ncursesw-integration.md`](reports/2026-11-06-tui-3-ncursesw-integration.md) | TUI-3 — infrastructure plein écran ncursesw, intégration `AgentWorker`, essais PTY et limites |
+| [2026-11-06-tui-3-recovery-validation.md](reports/2026-11-06-tui-3-recovery-validation.md) | TUI-3 — restauration depuis les événements source et revalidation après récupération |
+| [2026-11-06-tui-3-final-review.md](reports/2026-11-06-tui-3-final-review.md) | TUI-3 — revue contradictoire après récupération, résultats et risques résiduels |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

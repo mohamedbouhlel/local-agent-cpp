@@ -66,4 +66,4 @@ Référence antérieure : 193 cas, 1 228 assertions et 11 groupes CTest. Le diff
 
 Les résultats confirment le formatage des lignes, le texte stocké inchangé, le wrapping, le remplacement après perte d’événements et la conservation du test de scroll. Ils ne remplacent pas un nouvel essai ergonomique Ghostty après correction.
 
-**VALIDÉ pour le correctif de présentation et les tests automatisés exécutés.** Aucun commit, push ou merge n’a été effectué; aucun travail sur les six vues n’a commencé.
+**VALIDÉ pour le correctif de présentation et les tests automatisés exécutés.** Le commit d’implémentation `e783a3ced0b553efceeefdc17200b7fd0c890f06` a été poussé sur `fix/tui3-multiline-rendering` et publié dans la [PR #28](https://github.com/mohamedbouhlel/local-agent-cpp/pull/28), ouverte en brouillon vers `main`. La PR est non fusionnée; aucun travail sur les six vues n’a commencé.

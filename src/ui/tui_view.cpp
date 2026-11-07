@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cwchar>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -63,6 +64,29 @@ std::vector<std::string> wrap(std::string_view text,
     result.push_back(std::move(row));
     return result;
 }
+
+std::string retention_warning(std::uint64_t count, std::string_view singular,
+                              std::string_view plural, std::string_view singular_suffix,
+                              std::string_view plural_suffix)
+{
+    return "Historique partiel : " + std::to_string(count) + " "
+        + std::string(count == 1 ? singular : plural)
+        + std::string(count == 1 ? singular_suffix : plural_suffix);
+}
+
+std::size_t retention_notice_rows(std::uint64_t evicted, std::uint64_t rejected, int columns)
+{
+    const int usable = std::max(1, columns - 1);
+    std::size_t rows = 0;
+    if (evicted != 0) {
+        rows += wrap(retention_warning(evicted, "entrée", "entrées", " évincée", " évincées"), "", "", usable).size();
+    }
+    if (rejected != 0) {
+        rows += wrap(retention_warning(rejected, "entrée", "entrées", " trop volumineuse non retenue",
+                                       " trop volumineuses non retenues"), "", "", usable).size();
+    }
+    return rows;
+}
 }
 
 void TuiView::set_status(std::string_view status) { status_ = status; }
@@ -109,11 +133,41 @@ void TuiView::add_notice(std::string_view text)
 void TuiView::set_view_data(TuiViewData data) { view_data_ = std::move(data); }
 void TuiView::add_tool_activity(std::string_view text)
 {
-    tool_activity_.push_back(sanitize_terminal_line(text));
+    auto safe_text = sanitize_terminal_line(text);
+    const auto appended_rows = wrap(safe_text, "", "", std::max(1, last_columns_ - 1)).size();
+    const auto old_evicted = tool_activity_.evicted_count();
+    const auto old_rejected = tool_activity_.rejected_too_large_count();
+    const auto result = tool_activity_.add(std::move(safe_text));
+    const auto index = static_cast<std::size_t>(TuiPage::tools);
+    if (!page_follows_bottom_[index]) {
+        const auto max = std::numeric_limits<std::size_t>::max();
+        const auto old_notice_rows = retention_notice_rows(old_evicted, old_rejected, last_columns_);
+        const auto new_notice_rows = retention_notice_rows(tool_activity_.evicted_count(),
+                                                          tool_activity_.rejected_too_large_count(), last_columns_);
+        const std::size_t added_rows = (result.retained ? appended_rows : 0U)
+            + (new_notice_rows - old_notice_rows);
+        page_scroll_offsets_[index] = added_rows > max - page_scroll_offsets_[index]
+            ? max : page_scroll_offsets_[index] + added_rows;
+    }
 }
 void TuiView::add_diagnostic(std::string_view text)
 {
-    diagnostics_.push_back(sanitize_terminal_line(text));
+    auto safe_text = sanitize_terminal_line(text);
+    const auto appended_rows = wrap(safe_text, "", "", std::max(1, last_columns_ - 1)).size();
+    const auto old_evicted = diagnostics_.evicted_count();
+    const auto old_rejected = diagnostics_.rejected_too_large_count();
+    const auto result = diagnostics_.add(std::move(safe_text));
+    const auto index = static_cast<std::size_t>(TuiPage::diagnostics);
+    if (!page_follows_bottom_[index]) {
+        const auto max = std::numeric_limits<std::size_t>::max();
+        const auto old_notice_rows = retention_notice_rows(old_evicted, old_rejected, last_columns_);
+        const auto new_notice_rows = retention_notice_rows(diagnostics_.evicted_count(),
+                                                           diagnostics_.rejected_too_large_count(), last_columns_);
+        const std::size_t added_rows = (result.retained ? appended_rows : 0U)
+            + (new_notice_rows - old_notice_rows);
+        page_scroll_offsets_[index] = added_rows > max - page_scroll_offsets_[index]
+            ? max : page_scroll_offsets_[index] + added_rows;
+    }
 }
 void TuiView::scroll_up()
 {
@@ -191,7 +245,14 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns) 
         }
         source.emplace_back("Observed tool activity:");
         if (tool_activity_.empty()) source.emplace_back("No tool execution observed in this session.");
-        source.insert(source.end(), tool_activity_.begin(), tool_activity_.end());
+        source.insert(source.end(), tool_activity_.entries().begin(), tool_activity_.entries().end());
+        if (tool_activity_.evicted_count() != 0) {
+            source.push_back(retention_warning(tool_activity_.evicted_count(), "entrée", "entrées", " évincée", " évincées"));
+        }
+        if (tool_activity_.rejected_too_large_count() != 0) {
+            source.push_back(retention_warning(tool_activity_.rejected_too_large_count(), "entrée", "entrées",
+                                               " trop volumineuse non retenue", " trop volumineuses non retenues"));
+        }
         break;
     case TuiPage::metrics:
         source.emplace_back("Métriques indisponibles — MetricCollector non intégré");
@@ -199,7 +260,14 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns) 
     case TuiPage::diagnostics:
         source.emplace_back("Observed diagnostics:");
         if (diagnostics_.empty()) source.emplace_back("No diagnostic event observed in this session.");
-        source.insert(source.end(), diagnostics_.begin(), diagnostics_.end());
+        source.insert(source.end(), diagnostics_.entries().begin(), diagnostics_.entries().end());
+        if (diagnostics_.evicted_count() != 0) {
+            source.push_back(retention_warning(diagnostics_.evicted_count(), "entrée", "entrées", " évincée", " évincées"));
+        }
+        if (diagnostics_.rejected_too_large_count() != 0) {
+            source.push_back(retention_warning(diagnostics_.rejected_too_large_count(), "entrée", "entrées",
+                                               " trop volumineuse non retenue", " trop volumineuses non retenues"));
+        }
         break;
     case TuiPage::configuration:
         source.emplace_back("Read-only configuration:");

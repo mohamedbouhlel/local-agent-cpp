@@ -5,6 +5,7 @@
 #include "ui/terminal_session.hpp"
 #include "ui/tui_event_loop.hpp"
 #include "ui/tui_view.hpp"
+#include "ui/tui_view_data.hpp"
 
 #include <stdexcept>
 #include <utility>
@@ -30,6 +31,7 @@ int TuiApplication::run()
         return std::make_unique<Agent>(*tools, config, std::move(observer));
     }, event_limits_);
     TuiView view;
+    view.set_view_data(make_tui_view_data(config_, *tools_));
     TuiEventLoop loop(worker, terminal, view);
     return loop.run();
 }

@@ -47,6 +47,8 @@ add_library(agent_tui STATIC
   src/ui/tui_view.cpp
   src/ui/tui_event_loop.cpp
   src/ui/tui_application.cpp
+  src/ui/tui_navigation.cpp
+  src/ui/tui_view_data.cpp
 )
 target_include_directories(agent_tui PUBLIC include ${CURSES_INCLUDE_DIRS})
 target_link_libraries(agent_tui PUBLIC agent_core ${CURSES_LIBRARIES})

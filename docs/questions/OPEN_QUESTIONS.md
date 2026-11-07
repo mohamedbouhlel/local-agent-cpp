@@ -176,3 +176,42 @@ Les créations de fichiers absents restent publiées depuis `O_TMPFILE` via
 `linkat(AT_EMPTY_PATH)`. Cette décision n'isole pas les processus du même
 compte : elle retire à l'agent la capacité de remplacer un fichier existant
 jusqu'à une évolution de l'isolation système.
+
+## Bloc 7 — TUI après fusion de TUI-4A (`main` `51ae208`, 2026-11-07)
+
+> Ces constats ne réécrivent pas les questions historiques précédentes. Le
+> code est inspecté au SHA indiqué; la qualification Ghostty et les nombres
+> de tests sont rapportés par le mainteneur, non rejoués pendant cette mise à
+> jour documentaire.
+
+### TUI-Q21. Quelle politique de rétention appliquer aux données de session ?
+
+**[FAIT]** `TuiView` conserve transcript (`messages_`), activité outils
+(`tool_activity_`) et diagnostics (`diagnostics_`) dans des vecteurs sans
+plafond explicite; le brouillon est aussi conservé sans plafond constaté. La
+file `EventChannel` bornée ne borne pas ces stockages après consommation.
+**[OUVERT]** Plafonds par nombre d'entrées, octets et comportement d'éviction
+non décidés. Pour activité/diagnostics, un compte visible d'entrées écartées
+pourrait éviter une perte silencieuse. Borne du transcript et du compositeur
+est une décision UX séparée, car elle peut retirer du texte utilisateur ou
+modèle. Ne pas annoncer de mémoire totale bornée avant un contrat couvrant
+ces éléments et leur surcharge.
+
+### TUI-Q22. Quand et selon quel contrat intégrer `MetricCollector` ?
+
+**[FAIT]** Au SHA `51ae208`, le panneau affiche une indisponibilité explicite
+et l'arbre Git ne contient pas le collecteur. `AgentEvent` porte certaines
+mesures observées (durées monotones, compteurs par tour, octets HTTP), mais
+les deltas ne sont pas des tokens. **[OUVERT]** provenance, revue et
+intégration d'une implémentation de collecteur, champs affichés et règles
+d'indisponibilité. Les modifications locales UI-4 du checkout de travail ne
+sont pas intégrées ni présumées approuvées.
+
+### TUI-Q23. Quel séquencement TUI fait autorité pour les prochains jalons ?
+
+**[FAIT]** SPEC-UI-001 v2.0 et la section G historique de `ROADMAP.md`
+décrivent un ordre différent de l'exécution réelle, désormais arrivée à
+TUI-4A (six vues fusionnées). **[OUVERT]** Le mainteneur doit ratifier si le
+prochain incrément est un TUI-4B de rétention/enrichissement des vues, une
+intégration métriques selon TUI-5 de la spec, ou un autre séquencement. Les
+numéros et décisions historiques ne sont pas modifiés par le présent constat.

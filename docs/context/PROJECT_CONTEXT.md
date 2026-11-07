@@ -11,6 +11,46 @@
 >
 > Cette photographie **remplace l'ancienne introduction comme description courante**. L'audit à `4f33b62` est intégralement conservé plus bas sous « Archive historique » : ses constats ne concernent **que cet ancien commit**. L'historique chronologique reste dans [PROJECT_HISTORY.md](../history/PROJECT_HISTORY.md). Les propositions et questions restent dans [ROADMAP.md](../roadmap/ROADMAP.md) et [OPEN_QUESTIONS.md](../questions/OPEN_QUESTIONS.md), qui peuvent encore contenir des relevés antérieurs tant que M3 n'est pas exécuté.
 
+## Actualisation ciblée TUI — `main` au `51ae20867357b1b873657585b70d813f7f328194` (2026-11-07)
+
+> Cette actualisation est limitée au périmètre TUI et ne remplace pas les
+> observations historiques des autres sections datées plus haut. Elle est
+> fondée sur la lecture de l'arbre `main` à ce SHA. La qualification Ghostty
+> et les résultats d'essais ci-dessous sont rapportés par le mainteneur, pas
+> reproduits indépendamment dans cette actualisation.
+
+- **Fusionné :** le produit intègre la TUI ncursesw, `AgentWorker`, six vues et
+  la navigation F1–F6, Échap, Tab, F9 et F10 (PR #30; sources
+  `src/ui/tui_application.cpp`, `src/ui/tui_event_loop.cpp`,
+  `src/ui/tui_view.cpp`). Le mode CLI classique reste dans le produit.
+- **Sources de vues :** Conversation utilise le transcript et les événements;
+  Outils affiche noms/descriptions de schémas et activité observée; Diagnostics
+  affiche catégories/erreurs génériques et anomalies de séquence/perte;
+  Configuration utilise modèle, timeout, origine d'endpoint expurgée et
+  présence de clé, sans valeur de clé; Aide reprend les touches actives.
+  Workspace n'est pas exposé à cette vue.
+- **Métriques :** la vue affiche « MetricCollector non intégré ». Aucun
+  `MetricCollector` n'est présent dans l'arbre `main` de ce SHA. Les compteurs
+  conservés par `PresentationState` ne sont pas un collecteur intégré ni un
+  panneau de métriques validé.
+- **Rétention observée :** `TuiView` stocke `messages_`, `tool_activity_` et
+  `diagnostics_` dans des `std::vector` sans plafond explicite; le brouillon
+  du compositeur est une `std::string` sans plafond constaté. La file
+  `EventChannel` a des limites de transit, mais celles-ci n'imposent pas de
+  limite aux éléments déjà transférés dans la vue. Cela établit une propriété
+  du code, pas une mesure de consommation mémoire en production.
+- **Validation rapportée :** 214 cas / 1 345 assertions, 12/12 groupes CTest;
+  TUI-4A 15/99 et TUI-3 13/50. Le mainteneur rapporte 20/20 contrôles manuels
+  Ghostty réussis sous Debian 13 avec `TERM=xterm-ghostty`, dont génération
+  LLM réelle pendant navigation, envoi F9, sortie F10 et restauration terminal.
+  Ces essais ne sont pas reproduits indépendamment ici.
+- **Limites :** SSH, autres terminaux, conformité Unicode universelle et
+  scénario de mémoire sous session longue non qualifiés dans les résultats
+  fournis. Aucun token, débit, ETA ou succès fonctionnel ne peut être déduit
+  des seuls fragments SSE ou de l'état technique du tour.
+
+Voir les rapports [qualification Ghostty TUI-4A](../reports/2026-11-07-tui-4a-ghostty-qualification.md) et [réconciliation post-TUI-4A](../reports/2026-11-07-post-tui4a-roadmap-reconciliation.md).
+
 ## Suivi de réconciliation — M5 au `2b54563f650e0995603472261ecfa306f53bd654` (2026-11-05)
 
 > **FAIT VÉRIFIÉ PAR LECTURE DU CODE, NON TESTÉ EN M5 :** après la

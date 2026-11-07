@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <curses.h>
+#include "ui/bounded_history.hpp"
 #include "ui/tui_navigation.hpp"
 #include "ui/tui_view_data.hpp"
 
@@ -55,8 +56,8 @@ public:
     std::size_t page_scroll_offset(TuiPage page) const noexcept { return page_scroll_offsets_[static_cast<std::size_t>(page)]; }
     const std::vector<TuiMessage>& messages() const noexcept { return messages_; }
     std::size_t draw_count() const noexcept { return draw_count_; }
-    const std::vector<std::string>& tool_activity() const noexcept { return tool_activity_; }
-    const std::vector<std::string>& diagnostics() const noexcept { return diagnostics_; }
+    const BoundedHistory& tool_activity() const noexcept { return tool_activity_; }
+    const BoundedHistory& diagnostics() const noexcept { return diagnostics_; }
 
 private:
     int chat_height_for(int rows) const noexcept;
@@ -64,8 +65,8 @@ private:
 
     std::vector<TuiMessage> messages_;
     TuiViewData view_data_;
-    std::vector<std::string> tool_activity_;
-    std::vector<std::string> diagnostics_;
+    BoundedHistory tool_activity_;
+    BoundedHistory diagnostics_;
     std::array<std::size_t, static_cast<std::size_t>(TuiPage::count)> page_scroll_offsets_{};
     std::array<bool, static_cast<std::size_t>(TuiPage::count)> page_follows_bottom_ = {true, true, true, true, true, true};
     std::optional<std::size_t> active_assistant_;

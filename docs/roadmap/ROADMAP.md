@@ -247,6 +247,49 @@ Chaque phase doit recevoir sa propre autorisation. Le choix FTXUI, la file exact
 de vie/queue sont détaillés dans
 [`2026-11-05-tui-0-poc-protocol.md`](../reports/2026-11-05-tui-0-poc-protocol.md).
 
+## H. Réconciliation TUI après TUI-4A — observation au 2026-11-07
+
+> Cette section est une photographie ajoutée après fusion de PR #30. Elle
+> n'efface ni ne renumérote le séquencement candidat historique de la section
+> G, ni les phases de SPEC-UI-001 v2.0. Référence de code : `main` au SHA
+> `51ae20867357b1b873657585b70d813f7f328194`; qualification Ghostty et compteurs
+> manuels/automatisés ci-dessous sont rapportés par le mainteneur.
+
+### État fusionné et écarts de séquencement
+
+| Fonctionnalité | Statut réel au SHA | Preuve | Limitation | Jalon restant |
+|---|---|---|---|---|
+| POC terminal ncursesw | Réalisé avant intégration produit | Rapports TUI-POC-1 à 3; historique référencé par TUI-3 | Qualification Ghostty rapportée sur le prototype, SSH et autres terminaux non qualifiés | Aucun pour le POC; ses limites restent historiques |
+| Pont asynchrone et `AgentWorker` | Fusionné et utilisé par la TUI | `include/ui/agent_worker.hpp`, `src/ui/agent_worker.cpp`, `TuiApplication` | `Agent::send()` n'est pas annulable; fermeture peut attendre | Résilience et cycle de vie futurs selon arbitrage |
+| TUI ncursesw de production | Fusionnée : session terminal, worker, événements, conversation, saisie, restauration | `src/ui/terminal_session.cpp`, `src/ui/tui_application.cpp`, `src/ui/tui_event_loop.cpp` | Essais réels varient selon le terminal | Déjà intégré; validation continue |
+| Six vues et navigation TUI-4A | Fusionnées : Conversation, Outils, Métriques, Diagnostics, Configuration, Aide | `include/ui/tui_navigation.hpp`, `src/ui/tui_view.cpp`; PR #30 au SHA courant | Certaines vues sont des projections minimales; listes mémoire sans plafond | Enrichissement facultatif, sous décision distincte |
+| Conversation et composition multiligne | Intégrées; F9, streaming, scroll et conservation du brouillon | `TuiEventLoop`, `TuiView`, tests TUI-3/TUI-4A | Transcript et saisie n'ont pas de plafond de mémoire constaté | Décider si une politique de rétention UI est nécessaire |
+| Vue Outils | Schémas déclarés et événements observés (nom, statut, durée) | `TuiViewData`, `TuiEventLoop` | Pas d'arguments/résultats; historique d'activité non borné | Petit incrément possible : rétention bornée et indicateur d'évictions |
+| Vue Diagnostics | Catégories et anomalies réellement observées, messages génériques expurgés | `TuiEventLoop::handle_event`, `TuiView::add_diagnostic` | Pas de journal corrélé complet; liste non bornée | Même incrément possible que l'historique Outils |
+| Vue Configuration | Modèle, origine URL expurgée, timeout, présence de clé; schémas outil | `TuiViewData` et `TuiApplication` | Valeur clé cachée; workspace non transmis à la vue | Pas de modification sans besoin validé |
+| Vue Métriques / `MetricCollector` | Vue affiche explicitement indisponible; collecteur absent de l'arbre `main` | Projection TUI; inventaire Git de `main` au SHA | Aucun agrégat accessible à cette version | Jalon séparé après revue/autorisation d'une intégration de collecteur |
+| JSONL persistant | Non intégré | Aucun composant logger TUI dans l'arbre `main` | Politique et accès de stockage non décidés | Proposition SPEC ultérieure, autorisation nécessaire |
+| Qualification Ghostty TUI-4A | Réussite manuelle rapportée 20/20 par le mainteneur; tests automatisés rapportés | [`rapport de qualification`](../reports/2026-11-07-tui-4a-ghostty-qualification.md) | Pas de reproduction indépendante; SSH/autres terminaux non vérifiés | Qualification distincte pour nouveaux environnements |
+
+Le séquencement exécuté diffère des propositions écrites antérieurement :
+SPEC-UI-001 v2.0 attribue navigation/vues à TUI-3, conversation/compositeur à
+TUI-4, puis métriques/diagnostics à TUI-5; la section G de cette roadmap
+regroupait aussi les six vues dans son candidat TUI-3. L'exécution réelle a
+livré l'infrastructure/conversation en TUI-3, puis menu et six vues en TUI-4A.
+Les numéros normatifs et propositions historiques restent inchangés; la
+nouvelle étiquette TUI-4B ci-dessous est une proposition de découpage, pas une
+renumérotation ratifiée.
+
+### Prochain incrément — propositions
+
+**Proposition recommandée — TUI-4B : rétention bornée de l'activité Outils et Diagnostics.** Petit changement de présentation utilisant seulement les noms/statuts/durées déjà observés. Définir d'abord des plafonds d'entrées et/ou d'octets; retirer les plus anciennes entrées au-delà du plafond; afficher un compte exact d'entrées omises, sans déduire d'activité manquante. Le mécanisme reste en mémoire, sans journal persistant ni modification du moteur. Prérequis : arbitrage mainteneur sur les limites et le comportement d'éviction. Tests : séquence sous/au-dessus du plafond, ordre conservé, compte exact d'évictions, sanitisation, navigation/scroll et absence d'arguments/résultats. Critères : mémoire de ces deux listes bornée par les limites choisies, aucune perte silencieuse et mêmes événements moteur.
+
+Cette proposition **ne borne pas la mémoire totale de la TUI** : le transcript `messages_` et le brouillon `input_` sont également conservés sans plafond observé. Leur rétention touche directement au texte de conversation/saisie et devrait faire l'objet d'un arbitrage distinct; aucune limite arbitraire n'est proposée ici.
+
+**Option distincte — intégration métriques (jalon TUI-5 selon SPEC).** Prérequis : disposer d'une version du `MetricCollector` revue et intégrée à `main`, puis définir les champs affichés et leur disponibilité. Sources potentielles déjà prévues par `AgentEvent` : durées monotones, nombre de requêtes/outils/deltas, octets réponse et verdict technique. Les deltas ne sont pas des tokens; pas de tokens/s sans mesure fiable. Tests déterministes sur durées, tours échoués, absence de mesures et absence de valeurs artificielles. Les fichiers UI-4 locaux non fusionnés ne sont ni une source approuvée ni une dépendance de la présente base.
+
+L'enrichissement des vues Outils/Diagnostics et l'intégration d'un collecteur sont deux décisions séparées. Aucune phase suivante n'est autorisée par cette réconciliation.
+
 ---
 
 ## Annexe historique — anciennes sections A et B antérieures à M3

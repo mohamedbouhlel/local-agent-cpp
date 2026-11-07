@@ -106,6 +106,8 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-07-tui-3-ghostty-final-qualification.md](reports/2026-11-07-tui-3-ghostty-final-qualification.md) | TUI-3 — clôture de qualification Ghostty rapportée par le mainteneur, analyse des anomalies et préparation du périmètre TUI-4 |
 | [2026-11-07-tui-4a-navigation-six-views.md](reports/2026-11-07-tui-4a-navigation-six-views.md) | TUI-4A — navigation ncursesw, six vues fondées sur les données accessibles et validation CTest/PTY |
 | [2026-11-07-tui-4a-final-review.md](reports/2026-11-07-tui-4a-final-review.md) | TUI-4A — revue contradictoire, couverture UTF-8/multiligne renforcée et résultats finaux avant publication |
+| [2026-11-07-tui-4a-ghostty-qualification.md](reports/2026-11-07-tui-4a-ghostty-qualification.md) | Qualification manuelle TUI-4A sous Ghostty, rapportée par le mainteneur au SHA `51ae208` |
+| [2026-11-07-post-tui4a-roadmap-reconciliation.md](reports/2026-11-07-post-tui4a-roadmap-reconciliation.md) | Réconciliation de la roadmap avec TUI-4A fusionnée et options proposées pour la suite |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

@@ -1,12 +1,15 @@
 #pragma once
 
 #include <cstddef>
+#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <curses.h>
+#include "ui/tui_navigation.hpp"
+#include "ui/tui_view_data.hpp"
 
 namespace agent::ui {
 
@@ -30,26 +33,41 @@ public:
     void replace_assistant_response(std::string safe_text);
     void finish_assistant(bool complete);
     void add_notice(std::string_view safe_text);
+    void set_view_data(TuiViewData data);
+    void add_tool_activity(std::string_view safe_text);
+    void add_diagnostic(std::string_view safe_text);
 
     // Formatted transcript rows at the requested terminal width. Exposed so
     // wrapping and multiline role-label behavior can be tested deterministically.
     std::vector<std::string> rendered_conversation_rows(int columns) const;
+    std::vector<std::string> rendered_page_rows(TuiPage page, int columns) const;
 
     void scroll_up();
     void scroll_down();
+    void scroll_page_up(TuiPage page);
+    void scroll_page_down(TuiPage page);
     void on_resize(int columns, int chat_height);
-    void draw(WINDOW* window, bool unicode_enabled, std::string_view input, std::size_t cursor_byte);
+    void draw(WINDOW* window, bool unicode_enabled, const TuiNavigation& navigation,
+              std::string_view input, std::size_t cursor_byte);
 
     bool follows_bottom() const noexcept { return follow_bottom_; }
     std::size_t scroll_offset() const noexcept { return scroll_offset_; }
+    std::size_t page_scroll_offset(TuiPage page) const noexcept { return page_scroll_offsets_[static_cast<std::size_t>(page)]; }
     const std::vector<TuiMessage>& messages() const noexcept { return messages_; }
     std::size_t draw_count() const noexcept { return draw_count_; }
+    const std::vector<std::string>& tool_activity() const noexcept { return tool_activity_; }
+    const std::vector<std::string>& diagnostics() const noexcept { return diagnostics_; }
 
 private:
     int chat_height_for(int rows) const noexcept;
     void preserve_anchor_after_content_change(std::size_t previous_rows);
 
     std::vector<TuiMessage> messages_;
+    TuiViewData view_data_;
+    std::vector<std::string> tool_activity_;
+    std::vector<std::string> diagnostics_;
+    std::array<std::size_t, static_cast<std::size_t>(TuiPage::count)> page_scroll_offsets_{};
+    std::array<bool, static_cast<std::size_t>(TuiPage::count)> page_follows_bottom_ = {true, true, true, true, true, true};
     std::optional<std::size_t> active_assistant_;
     std::string status_ = "Ready. Type a message; F9 sends it.";
     std::size_t scroll_offset_ = 0;

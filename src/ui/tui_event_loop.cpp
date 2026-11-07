@@ -30,19 +30,19 @@ int TuiEventLoop::run()
             view_.set_status("Terminal resized; compact layout active when space is limited.");
             changed = true;
         }
-        if (changed || dirty_) { view_.draw(window, terminal_.unicode_enabled(), input_, cursor_byte_); dirty_ = false; }
+        if (changed || dirty_) { view_.draw(window, terminal_.unicode_enabled(), navigation_, input_, cursor_byte_); dirty_ = false; }
         wint_t key{};
         const int rc = wget_wch(window, &key);
         if (rc != ERR && handle_key(key, rc == KEY_CODE_YES)) {
             dirty_ = true;
             if (closing_ && active_turn_) {
-                view_.draw(window, terminal_.unicode_enabled(), input_, cursor_byte_);
+                view_.draw(window, terminal_.unicode_enabled(), navigation_, input_, cursor_byte_);
                 dirty_ = false;
             }
         }
         (void)collect_completion();
         if (closing_ && !active_turn_ && dirty_) {
-            view_.draw(window, terminal_.unicode_enabled(), input_, cursor_byte_);
+            view_.draw(window, terminal_.unicode_enabled(), navigation_, input_, cursor_byte_);
             dirty_ = false;
         }
     }
@@ -60,6 +60,7 @@ bool TuiEventLoop::drain_events()
     const auto snapshot = channel->snapshot();
     if (active_turn_ && (snapshot.dropped_events > dropped_events_at_submit_
                          || snapshot.observer_failures > observer_failures_at_submit_)) {
+        if (!event_details_incomplete_) view_.add_diagnostic("Event queue reported lost details; this turn's event detail is incomplete.");
         event_details_incomplete_ = true;
         view_.set_status("Event details incomplete: the event queue reported lost details.");
         changed = true;
@@ -80,6 +81,7 @@ void TuiEventLoop::handle_event(const AgentEvent& event)
             const bool turn_boundary = std::holds_alternative<RequestStarted>(event.payload) && !active_turn_id_;
             if (!turn_boundary) {
                 event_details_incomplete_ = true;
+                view_.add_diagnostic("Presentation event sequence is inconsistent; details may be incomplete.");
                 view_.set_status("Event details incomplete: inconsistent or missing event sequence.");
             }
         }
@@ -87,6 +89,7 @@ void TuiEventLoop::handle_event(const AgentEvent& event)
     if (!active_turn_id_) active_turn_id_ = event.metadata.turn_id;
     if (event.metadata.turn_id != active_turn_id_) {
         event_details_incomplete_ = true;
+        view_.add_diagnostic("Presentation event turn correlation mismatch; details are incomplete.");
         view_.set_status("Event details incomplete: event correlation mismatch.");
         return;
     }
@@ -99,17 +102,31 @@ void TuiEventLoop::handle_event(const AgentEvent& event)
             if (!safe.empty()) view_.append_assistant_delta(safe);
             view_.set_status("Receiving model stream…");
         } else if constexpr (std::is_same_v<T, ToolStarted>) {
-            view_.add_notice("Running tool: " + sanitize_terminal_line(payload.name));
+            const auto name = sanitize_terminal_line(payload.name);
+            view_.add_tool_activity("Started: " + name);
+            view_.add_notice("Running tool: " + name);
             view_.set_status("Tool running.");
         } else if constexpr (std::is_same_v<T, ToolSucceeded>) {
-            view_.add_notice("Tool completed: " + sanitize_terminal_line(payload.name));
+            const auto name = sanitize_terminal_line(payload.name);
+            view_.add_tool_activity("Succeeded: " + name + " (" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(payload.duration).count()) + " ms)");
+            view_.add_notice("Tool completed: " + name);
             view_.set_status("Tool completed; waiting for model.");
         } else if constexpr (std::is_same_v<T, ToolFailed>) {
-            view_.add_notice("Tool failed: " + sanitize_terminal_line(payload.name));
+            const auto name = sanitize_terminal_line(payload.name);
+            view_.add_tool_activity("Failed: " + name + " (" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(payload.duration).count()) + " ms)");
+            view_.add_notice("Tool failed: " + name);
             view_.set_status("Tool failed; agent may continue.");
-        } else if constexpr (std::is_same_v<T, RequestFailed>) view_.set_status("HTTP/protocol request failed.");
-        else if constexpr (std::is_same_v<T, TurnFinished>) view_.set_status(payload.outcome == TurnOutcome::completed ? "Turn completed technically; task success is not verified." : "Turn failed.");
-        else if constexpr (std::is_same_v<T, HttpRequestFinished>) view_.set_status("HTTP transport finished; model turn may continue.");
+        } else if constexpr (std::is_same_v<T, RequestFailed>) {
+            const auto category = payload.category == RequestFailureCategory::http ? "HTTP" :
+                                  payload.category == RequestFailureCategory::protocol ? "protocol" :
+                                  payload.category == RequestFailureCategory::iteration_limit ? "iteration limit" :
+                                  payload.category == RequestFailureCategory::legacy_callback ? "callback" : "unexpected";
+            view_.add_diagnostic(std::string("Request failed: ") + category + ".");
+            view_.set_status("HTTP/protocol request failed.");
+        } else if constexpr (std::is_same_v<T, TurnFinished>) {
+            view_.add_diagnostic(payload.outcome == TurnOutcome::completed ? "Turn completed technically; functional success is unverified." : "Turn failed.");
+            view_.set_status(payload.outcome == TurnOutcome::completed ? "Turn completed technically; task success is not verified." : "Turn failed.");
+        } else if constexpr (std::is_same_v<T, HttpRequestFinished>) view_.set_status("HTTP transport finished; model turn may continue.");
     }, event.payload);
 }
 
@@ -134,12 +151,14 @@ bool TuiEventLoop::collect_completion()
     } else {
         view_.finish_assistant(false);
         std::string message = "Unexpected agent failure.";
+        std::string diagnostic = "Turn failed with an unexpected error.";
         try { if (result.exception) std::rethrow_exception(result.exception); }
-        catch (const HttpError& e) { message = std::string("HTTP error: ") + e.what(); }
-        catch (const AgentError& e) { message = std::string("Agent protocol error: ") + e.what(); }
-        catch (const std::exception& e) { message = std::string("Agent error: ") + e.what(); }
-        catch (...) { message = "Agent failed with a non-standard exception."; }
+        catch (const HttpError& e) { message = std::string("HTTP error: ") + e.what(); diagnostic = "Turn failed with an HTTP error."; }
+        catch (const AgentError& e) { message = std::string("Agent protocol error: ") + e.what(); diagnostic = "Turn failed with an agent protocol error."; }
+        catch (const std::exception& e) { message = std::string("Agent error: ") + e.what(); diagnostic = "Turn failed with an agent error."; }
+        catch (...) { message = "Agent failed with a non-standard exception."; diagnostic = "Turn failed with a non-standard exception."; }
         view_.add_notice(sanitize_terminal_line(message));
+        view_.add_diagnostic(diagnostic);
         view_.set_status(event_details_incomplete_ ? "Turn failed; streamed details are incomplete." : "Turn failed; partial response is not complete.");
     }
     active_turn_id_.reset();
@@ -152,11 +171,30 @@ bool TuiEventLoop::collect_completion()
 bool TuiEventLoop::handle_key(wint_t key, bool key_code)
 {
     if (key_code) {
-        if (key == KEY_F(10) || key == 27) { request_exit(); return true; }
-        if (key == KEY_F(9)) { submit_input(); return true; }
+        if (key == KEY_F(10)) { request_exit(); return true; }
+        if (key == KEY_F(9)) {
+            if (navigation_.can_submit()) submit_input();
+            else view_.set_status("F9 sends only from Conversation.");
+            return true;
+        }
+        for (int number = 1; number <= 6; ++number) {
+            if (key == KEY_F(number)) {
+                static_cast<void>(navigation_.select_function_key(number));
+                return true;
+            }
+        }
         if (key == KEY_RESIZE) return true;
-        if (key == KEY_PPAGE) { view_.scroll_up(); return true; }
-        if (key == KEY_NPAGE) { view_.scroll_down(); return true; }
+        if (key == KEY_PPAGE) { view_.scroll_page_up(navigation_.page()); return true; }
+        if (key == KEY_NPAGE) { view_.scroll_page_down(navigation_.page()); return true; }
+        if (key == KEY_UP || key == KEY_DOWN) {
+            const int direction = key == KEY_UP ? -1 : 1;
+            if (navigation_.move_selection(direction)) return true;
+            if (navigation_.focus() == TuiFocus::content) {
+                if (direction < 0) view_.scroll_page_up(navigation_.page());
+                else view_.scroll_page_down(navigation_.page());
+                return true;
+            }
+        }
         if (key == KEY_LEFT && cursor_byte_ > 0) { --cursor_byte_; while (cursor_byte_ > 0 && (static_cast<unsigned char>(input_[cursor_byte_]) & 0xc0) == 0x80) --cursor_byte_; return true; }
         if (key == KEY_RIGHT && cursor_byte_ < input_.size()) { ++cursor_byte_; while (cursor_byte_ < input_.size() && (static_cast<unsigned char>(input_[cursor_byte_]) & 0xc0) == 0x80) ++cursor_byte_; return true; }
         if (key == KEY_BACKSPACE || key == KEY_DC) {
@@ -166,9 +204,16 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
         }
         return false;
     }
-    if (key == 27) { request_exit(); return true; }
-    if (key == 9) { composer_focused_ = !composer_focused_; view_.set_status(composer_focused_ ? "Composer focused." : "Navigation focused; PgUp/PgDn scroll."); return true; }
-    if (!composer_focused_) return false;
+    if (key == 27) { navigation_.escape_to_conversation(); view_.set_status("Returned to Conversation."); return true; }
+    if (key == 9) {
+        navigation_.cycle_focus();
+        view_.set_status(navigation_.focus() == TuiFocus::composer ? "Composer focused." :
+                         navigation_.focus() == TuiFocus::menu ? "View menu focused." : "View content focused.");
+        return true;
+    }
+    if (key == KEY_UP) { view_.scroll_page_up(navigation_.page()); return true; }
+    if (key == KEY_DOWN) { view_.scroll_page_down(navigation_.page()); return true; }
+    if (navigation_.focus() != TuiFocus::composer || !navigation_.can_submit()) return false;
     if (key == 10 || key == 13) { input_.insert(cursor_byte_++, 1, '\n'); return true; }
     if (key >= 32 && key <= 0x10ffff) {
         wchar_t wc = static_cast<wchar_t>(key); char bytes[MB_LEN_MAX]{}; std::mbstate_t state{};

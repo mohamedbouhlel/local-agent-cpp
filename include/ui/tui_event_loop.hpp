@@ -5,6 +5,7 @@
 #include "ui/terminal_text_sanitizer.hpp"
 #include "ui/terminal_session.hpp"
 #include "ui/tui_view.hpp"
+#include "ui/tui_navigation.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -31,12 +32,12 @@ private:
     TerminalSession& terminal_;
     TuiView& view_;
     PresentationState presentation_state_;
+    TuiNavigation navigation_;
     TerminalTextSanitizer sanitizer_;
     std::string input_;
     std::size_t cursor_byte_ = 0;
     std::optional<std::future<TurnCompletion>> active_turn_;
     std::optional<TurnId> active_turn_id_;
-    bool composer_focused_ = true;
     bool closing_ = false;
     bool event_details_incomplete_ = false;
     bool presentation_state_desynchronized_ = false;

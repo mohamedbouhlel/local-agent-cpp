@@ -457,33 +457,36 @@ TEST(tui3, write_approval_dialog_creates_only_after_explicit_y)
 
 TEST(tui3, closing_during_write_approval_cancels_without_creating_parent)
 {
-    tests::TempDir working_directory("tui_write_cancelled");
-    MockHttpServer server;
-    MockHttpServer::Response call;
-    call.body = sse_write_call("call-pty-close", "nested/cancelled.txt", "must not exist");
-    server.enqueue(std::move(call));
-    MockHttpServer::Response answer;
-    answer.body = sse_delta("continued after cancellation") + "data: [DONE]\n\n";
-    server.enqueue(std::move(answer));
+    constexpr int repetitions = 30;
+    for (int iteration = 0; iteration < repetitions; ++iteration) {
+        tests::TempDir working_directory("tui_write_cancelled");
+        MockHttpServer server;
+        MockHttpServer::Response call;
+        call.body = sse_write_call("call-pty-close", "nested/cancelled.txt", "must not exist");
+        server.enqueue(std::move(call));
+        MockHttpServer::Response answer;
+        answer.body = sse_delta("continued after cancellation") + "data: [DONE]\n\n";
+        server.enqueue(std::move(answer));
 
-    const auto run = run_tui_write_decision(server, working_directory.path(), {}, true);
-    CHECK(run.exited);
-    CHECK(WIFEXITED(run.status));
-    CHECK_EQ(WEXITSTATUS(run.status), 0);
-    CHECK(run.dialog_seen);
-    CHECK(run.output.find("no file was created") != std::string::npos);
-    CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
-    const auto requests = server.received_bodies();
-    CHECK_EQ(requests.size(), std::size_t(2));
-    if (requests.size() == 2) {
-        const auto second = nlohmann::json::parse(requests[1]);
-        bool found_cancelled = false;
-        for (const auto& message : second.at("messages")) {
-            if (message.value("role", "") == "tool") {
-                found_cancelled = message.value("content", "").find("cancelled") != std::string::npos;
+        const auto run = run_tui_write_decision(server, working_directory.path(), {}, true);
+        CHECK(run.exited);
+        CHECK(WIFEXITED(run.status));
+        CHECK_EQ(WEXITSTATUS(run.status), 0);
+        CHECK(run.dialog_seen);
+        CHECK(run.output.find("no file was created") != std::string::npos);
+        CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
+        const auto requests = server.received_bodies();
+        CHECK_EQ(requests.size(), std::size_t(2));
+        if (requests.size() == 2) {
+            const auto second = nlohmann::json::parse(requests[1]);
+            bool found_cancelled = false;
+            for (const auto& message : second.at("messages")) {
+                if (message.value("role", "") == "tool") {
+                    found_cancelled = message.value("content", "").find("cancelled") != std::string::npos;
+                }
             }
+            CHECK(found_cancelled);
         }
-        CHECK(found_cancelled);
     }
 }
 

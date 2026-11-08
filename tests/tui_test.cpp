@@ -427,6 +427,57 @@ TEST(tui3, http_failure_is_rendered_as_failure_in_pty)
     CHECK(false);
 }
 
+TEST(tui3, malformed_sse_is_rendered_as_protocol_failure_in_pty)
+{
+    MockHttpServer server;
+    server.enqueue({200, sse_delta("provisional") + "data: {not-json}\n\ndata: [DONE]\n\n", 0, 0, false, false});
+    int master = -1;
+    winsize size{}; size.ws_row = 24; size.ws_col = 80;
+    const pid_t child = ::forkpty(&master, nullptr, nullptr, &size);
+    CHECK(child >= 0);
+    if (child == 0) {
+        const auto executable = std::filesystem::read_symlink("/proc/self/exe").parent_path() / "tui_pty_driver";
+        ::setenv("TERM", "xterm-256color", 1);
+        ::setenv("LC_ALL", "C.UTF-8", 1);
+        ::execl(executable.c_str(), executable.c_str(), server.url("/v1/chat/completions").c_str(), "normal", nullptr);
+        _exit(127);
+    }
+    std::string output;
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    (void)::write(master, "request", 7);
+    (void)::write(master, "\033[20~", 5);
+    bool sent_quit = false;
+    int status = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        pollfd descriptor{master, POLLIN, 0};
+        if (::poll(&descriptor, 1, 50) > 0 && (descriptor.revents & POLLIN)) {
+            char bytes[4096]; const auto count = ::read(master, bytes, sizeof(bytes));
+            if (count > 0) output.append(bytes, static_cast<std::size_t>(count));
+        }
+        if (!sent_quit && output.find("Agent protocol error:") != std::string::npos) {
+            (void)::write(master, "\033[21~", 5);
+            sent_quit = true;
+        }
+        if (::waitpid(child, &status, WNOHANG) == child) {
+            ::close(master);
+            CHECK(WIFEXITED(status));
+            CHECK_EQ(WEXITSTATUS(status), 0);
+            CHECK(sent_quit);
+            CHECK(output.find("provisional") != std::string::npos);
+            CHECK(output.find("Agent protocol error:") != std::string::npos);
+            CHECK(output.find("Turn completed technically") == std::string::npos);
+            CHECK(output.find("not-json") == std::string::npos);
+            CHECK_EQ(server.received_bodies().size(), std::size_t(1));
+            return;
+        }
+    }
+    (void)::kill(child, SIGKILL);
+    (void)::waitpid(child, &status, 0);
+    ::close(master);
+    CHECK(false);
+}
+
 TEST(tui3, write_approval_dialog_creates_only_after_explicit_y)
 {
     tests::TempDir working_directory("tui_write_approved");

@@ -513,6 +513,26 @@ TEST(ui3, incomplete_sse_marks_already_streamed_text_as_unvalidated)
     CHECK(harness.diagnostics.str().find("task success is not independently verified") == std::string::npos);
 }
 
+TEST(ui3, malformed_sse_marks_streamed_text_as_unvalidated)
+{
+    MockHttpServer server;
+    server.enqueue(response(text_event("provisional") + "data: {not-json}\n\n" + "data: [DONE]\n\n"));
+    ToolRegistry tools;
+    RenderHarness harness(capabilities(false, false));
+    Agent agent(tools, config_for(server), harness.controller);
+
+    CHECK(agent::ui::run_console_turn(agent, "request", server.url("/v1/chat/completions"),
+                                      *harness.controller)
+          == agent::ui::ConsoleTurnResult::failed);
+    CHECK(harness.controller->snapshot().phase == agent::ui::PresentationPhase::failed);
+    CHECK_EQ(harness.output.str(), std::string("provisional\n"));
+    CHECK(harness.diagnostics.str().find("malformed JSON in model stream event") != std::string::npos);
+    CHECK(harness.diagnostics.str().find("Streamed model output may be incomplete; it is not a completed response.")
+          != std::string::npos);
+    CHECK(harness.diagnostics.str().find("task success is not independently verified") == std::string::npos);
+    CHECK(harness.diagnostics.str().find("not-json") == std::string::npos);
+}
+
 TEST(ui3, hostile_tool_name_is_neutralized_and_failure_can_recover)
 {
     const std::string hostile_name = std::string("not-real\x1b]0;pwn\x07", 16);

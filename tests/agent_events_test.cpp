@@ -1,7 +1,9 @@
 #include "agent.hpp"
+#include "http_client.hpp"
 #include "mock_http_server.hpp"
 #include "test_support.hpp"
 #include "tool_registry.hpp"
+#include "ui/presentation_state.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -156,6 +158,53 @@ void check_single_terminal_sequence(const std::vector<AgentEvent>& events)
     }
 }
 
+void check_malformed_sse_rejected(const std::string& body, const std::string& expected_partial_text)
+{
+    MockHttpServer server;
+    server.enqueue(response(body));
+    server.enqueue(response(text_delta("recovered") + done()));
+    ToolRegistry tools;
+    auto observer = std::make_shared<RecordingObserver>();
+    Agent agent(tools, config_for(server), observer);
+
+    std::string streamed_text;
+    AgentCallbacks callbacks;
+    callbacks.on_text_delta = [&streamed_text](const std::string& delta) { streamed_text += delta; };
+    CHECK_THROWS_MSG(agent.send("first question", callbacks), "malformed JSON in model stream event");
+    CHECK_EQ(streamed_text, expected_partial_text);
+    CHECK_EQ(count_type(observer->events, EventType::RequestFailed), std::size_t(1));
+    CHECK_EQ(count_type(observer->events, EventType::TurnFinished), std::size_t(1));
+    CHECK(std::get<agent::ui::RequestFailed>(observer->events[observer->events.size() - 2].payload).category
+          == agent::ui::RequestFailureCategory::protocol);
+    CHECK(std::get<agent::ui::TurnFinished>(observer->events.back().payload).outcome
+          == agent::ui::TurnOutcome::failed);
+    const auto http_finished = std::find_if(observer->events.begin(), observer->events.end(), [](const auto& event) {
+        return event.type() == EventType::HttpRequestFinished;
+    });
+    CHECK(http_finished != observer->events.end());
+    if (http_finished != observer->events.end()) {
+        CHECK(std::get<agent::ui::HttpRequestFinished>(http_finished->payload).outcome
+              == agent::ui::HttpRequestOutcome::completed);
+    }
+    check_single_terminal_sequence(observer->events);
+
+    agent::ui::PresentationState presentation;
+    for (const auto& event : observer->events) {
+        CHECK(presentation.apply(event).applied());
+    }
+    CHECK(presentation.snapshot().phase == agent::ui::PresentationPhase::failed);
+
+    CHECK_EQ(agent.send("second question"), std::string("recovered"));
+    const auto requests = server.received_bodies();
+    CHECK_EQ(requests.size(), std::size_t(2));
+    if (requests.size() == 2) {
+        const auto messages = nlohmann::json::parse(requests[1]).at("messages");
+        std::vector<std::string> roles;
+        for (const auto& message : messages) roles.push_back(message.value("role", "<absent>"));
+        CHECK(roles == std::vector<std::string>({"user", "user"}));
+    }
+}
+
 struct LegacyCallbackError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
@@ -292,6 +341,59 @@ TEST(agent, non_standard_tool_exception_is_reported_and_rethrown_unchanged)
     CHECK(std::get<agent::ui::TurnFinished>(observer->events.back().payload).outcome
           == agent::ui::TurnOutcome::failed);
     check_single_terminal_sequence(observer->events);
+}
+
+TEST(agent, malformed_sse_json_followed_by_done_is_protocol_failure)
+{
+    check_malformed_sse_rejected("data: {not-json}\n\n" + done(), "");
+}
+
+TEST(agent, malformed_sse_json_after_text_delta_keeps_only_provisional_text)
+{
+    check_malformed_sse_rejected(text_delta("provisional") + "data: {not-json}\n\n" + done(), "provisional");
+}
+
+TEST(agent, malformed_sse_json_before_valid_delta_does_not_resume_streaming)
+{
+    check_malformed_sse_rejected("data: {not-json}\n\n" + text_delta("must-not-appear") + done(), "");
+}
+
+TEST(agent, malformed_stream_still_obeys_configured_http_timeout)
+{
+    MockHttpServer server;
+    auto slow = response("data: {not-json}\n\n" + std::string(100, 'x'));
+    slow.piece_size = 1;
+    slow.piece_delay_us = 30'000;
+    server.enqueue(std::move(slow));
+    server.enqueue(response(text_delta("recovered") + done()));
+    ToolRegistry tools;
+    auto observer = std::make_shared<RecordingObserver>();
+    Agent agent(tools, config_for(server, 1), observer);
+
+    std::string error_message;
+    try {
+        (void)agent.send("first question");
+    } catch (const HttpError& error) {
+        error_message = error.what();
+    }
+    CHECK(error_message.find("timed out after 1s") != std::string::npos);
+    CHECK(std::get<agent::ui::HttpRequestFinished>(observer->events[2].payload).outcome
+          == agent::ui::HttpRequestOutcome::failed);
+    CHECK(std::get<agent::ui::RequestFailed>(observer->events[observer->events.size() - 2].payload).category
+          == agent::ui::RequestFailureCategory::http);
+    CHECK(std::get<agent::ui::TurnFinished>(observer->events.back().payload).outcome
+          == agent::ui::TurnOutcome::failed);
+    check_single_terminal_sequence(observer->events);
+
+    CHECK_EQ(agent.send("second question"), std::string("recovered"));
+    const auto requests = server.received_bodies();
+    CHECK_EQ(requests.size(), std::size_t(2));
+    if (requests.size() == 2) {
+        const auto messages = nlohmann::json::parse(requests[1]).at("messages");
+        std::vector<std::string> roles;
+        for (const auto& message : messages) roles.push_back(message.value("role", "<absent>"));
+        CHECK(roles == std::vector<std::string>({"user", "user"}));
+    }
 }
 
 TEST(agent, missing_done_emits_failure_without_false_turn_success)

@@ -68,11 +68,13 @@ public:
         return contents_;
     }
 
-    bool wait_for(const std::string& text)
+    bool wait_for_challenge(const std::string& marker, std::size_t challenge_size)
     {
         std::unique_lock lock(mutex_);
         return changed_.wait_for(lock, std::chrono::seconds(2), [&] {
-            return contents_.find(text) != std::string::npos;
+            const auto start = contents_.find(marker);
+            return start != std::string::npos
+                && contents_.size() >= start + marker.size() + challenge_size;
         });
     }
 
@@ -107,7 +109,7 @@ private:
 std::string challenge_from(PromptSignalBuffer& output)
 {
     constexpr std::string_view marker = "Confirmation: type exactly 'yes ";
-    if (!output.wait_for(std::string(marker))) return {};
+    if (!output.wait_for_challenge(std::string(marker), 32)) return {};
     const auto contents = output.contents();
     const auto start = contents.find(marker);
     if (start == std::string::npos) return {};
@@ -419,11 +421,13 @@ TEST(workspace, cli_late_confirmation_after_expiration_creates_nothing)
     WorkspaceWriteAuthorizer authorizer(workspace.path(), provider);
     auto request = std::make_shared<WriteApprovalRequest>(
         *authorizer.prepare_request("late/file.txt", "must not exist", {}));
-    request->expires_at = std::chrono::steady_clock::now() + 40ms;
+    // Laisser au worker le temps d'entrer dans le provider et d'émettre le défi;
+    // challenge_from attend ce signal avant que le test n'envoie la réponse tardive.
+    request->expires_at = std::chrono::steady_clock::now() + 5s;
     auto pending = std::async(std::launch::async, [&] { return authorizer.authorize(request); });
     const auto challenge = challenge_from(output_buffer);
     CHECK_EQ(challenge.size(), std::size_t(32));
-    CHECK(pending.wait_for(250ms) == std::future_status::ready);
+    CHECK(pending.wait_for(6s) == std::future_status::ready);
     auto result = pending.get();
     CHECK(std::holds_alternative<ApprovalDecision>(result));
     CHECK(std::get<ApprovalDecision>(result) == ApprovalDecision::expired);

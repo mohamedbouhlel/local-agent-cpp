@@ -47,6 +47,7 @@ private:
     std::string approval_challenge_;
     std::string approval_confirmation_input_;
     std::size_t approval_scroll_ = 0;
+    bool approval_expired_ = false;
     bool closing_ = false;
     bool event_details_incomplete_ = false;
     bool presentation_state_desynchronized_ = false;

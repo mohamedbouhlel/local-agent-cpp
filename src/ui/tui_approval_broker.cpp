@@ -17,6 +17,7 @@ ApprovalDecision TuiApprovalBroker::request(std::shared_ptr<const WriteApprovalR
     if (closed_) return ApprovalDecision::cancelled;
     if (!pending_ || pending_->request->approval_id != id) return ApprovalDecision::cancelled;
     auto result = pending_->decision.value_or(ApprovalDecision::expired);
+    if (result == ApprovalDecision::expired) expired_approval_id_ = id;
     pending_.reset();
     changed_.notify_all();
     return result;
@@ -52,6 +53,12 @@ bool TuiApprovalBroker::is_pending(std::uint64_t approval_id) const noexcept
 {
     std::lock_guard lock(mutex_);
     return !closed_ && pending_ && !pending_->decision && pending_->request->approval_id == approval_id;
+}
+
+bool TuiApprovalBroker::was_expired(std::uint64_t approval_id) const noexcept
+{
+    std::lock_guard lock(mutex_);
+    return expired_approval_id_ && *expired_approval_id_ == approval_id;
 }
 
 } // namespace agent::ui

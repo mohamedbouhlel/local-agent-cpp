@@ -41,6 +41,8 @@ struct TuiApprovalRun {
     int status = 0;
     bool exited = false;
     bool dialog_seen = false;
+    bool dialog_kept_typed_no = false;
+    bool expiry_notice_seen = false;
     std::string output;
 };
 
@@ -68,7 +70,8 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
         const auto executable = std::filesystem::read_symlink("/proc/self/exe").parent_path() / "tui_pty_driver";
         ::setenv("TERM", "xterm-256color", 1);
         ::setenv("LC_ALL", "C.UTF-8", 1);
-        ::execl(executable.c_str(), executable.c_str(), server.url("/v1/chat/completions").c_str(), "normal", nullptr);
+        const char* mode = decision == "expire-typed" ? "short-expiry" : "normal";
+        ::execl(executable.c_str(), executable.c_str(), server.url("/v1/chat/completions").c_str(), mode, nullptr);
         _exit(127);
     }
 
@@ -109,12 +112,55 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
         else if (decision == "approve") {
             const auto challenge = challenge_from_tui_output(result.output);
             if (!challenge.empty()) write(approval_confirmation(challenge) + "\n");
+        } else if (decision == "typed-approve" || decision == "fast-approve") {
+            const auto challenge = challenge_from_tui_output(result.output);
+            if (!challenge.empty()) {
+                const auto confirmation = approval_confirmation(challenge) + "\n";
+                if (decision == "typed-approve") {
+                    for (const char character : confirmation) write(std::string_view(&character, 1));
+                } else {
+                    static_cast<void>(::write(master, confirmation.data(), confirmation.size()));
+                }
+            }
         } else if (decision == "wrong") {
             auto challenge = challenge_from_tui_output(result.output);
             if (!challenge.empty()) {
                 challenge[0] = challenge[0] == '0' ? '1' : '0';
                 write(approval_confirmation(challenge) + "\n");
             }
+        } else if (decision == "typed-no") {
+            write("n");
+            write("o");
+            read_for(std::chrono::milliseconds(100));
+            result.dialog_kept_typed_no = result.output.find("Input: no") != std::string::npos;
+            write("\n");
+            const auto followup_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+            while (std::chrono::steady_clock::now() < followup_deadline
+                   && result.output.find("TUI_FOLLOWUP_DONE") == std::string::npos) {
+                read_for(std::chrono::milliseconds(20));
+            }
+            read_for(std::chrono::milliseconds(160));
+            write("\033[20~"); // Probe that approval characters were not left in the composer.
+        } else if (decision == "partial-close") {
+            write("y");
+            write("e");
+            write("s");
+            write("\033[21~");
+        } else if (decision == "expire-typed") {
+            write("y");
+            write("e");
+            write("s");
+            read_for(std::chrono::milliseconds(700));
+            result.expiry_notice_seen = result.output.find("Approval expired; no file was created.") != std::string::npos;
+            write("x");
+            write("\n"); // Dismiss the expired modal; queued approval characters must stay out of the composer.
+            const auto followup_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+            while (std::chrono::steady_clock::now() < followup_deadline
+                   && result.output.find("TUI_FOLLOWUP_DONE") == std::string::npos) {
+                read_for(std::chrono::milliseconds(20));
+            }
+            read_for(std::chrono::milliseconds(160));
+            write("\033[20~");
         } else if (decision == "y") write("y\n");
         else write(decision);
     }
@@ -139,6 +185,102 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
     (void)::close(master);
     return result;
 }
+}
+
+TEST(tui3, typed_no_is_retained_until_enter_without_leaking_to_composer)
+{
+    tests::TempDir working_directory("tui_write_typed_no");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-typed-no", "nested/denied.txt", "must not be written");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("TUI_FOLLOWUP_DONE") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "typed-no", false);
+    CHECK(run.exited);
+    CHECK(run.dialog_seen);
+    CHECK(run.dialog_kept_typed_no);
+    CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
+    CHECK_EQ(server.received_bodies().size(), std::size_t(2));
+}
+
+TEST(tui3, typed_confirmation_approves_only_after_enter)
+{
+    tests::TempDir working_directory("tui_write_typed_approval");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-typed-approve", "nested/typed.txt", "typed approval body");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("typed approval completed") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "typed-approve", false);
+    CHECK(run.exited);
+    CHECK(run.dialog_seen);
+    const auto file = working_directory.path() / "workspace/nested/typed.txt";
+    CHECK(std::filesystem::exists(file));
+    if (std::filesystem::exists(file)) {
+        std::ifstream in(file, std::ios::binary);
+        CHECK_EQ(std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()),
+                 std::string("typed approval body"));
+    }
+}
+
+TEST(tui3, rapid_confirmation_paste_is_accepted)
+{
+    tests::TempDir working_directory("tui_write_fast_approval");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-fast-approve", "nested/fast.txt", "fast approval body");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("fast approval completed") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "fast-approve", false);
+    CHECK(run.exited);
+    CHECK(run.dialog_seen);
+    CHECK(std::filesystem::exists(working_directory.path() / "workspace/nested/fast.txt"));
+}
+
+TEST(tui3, partial_confirmation_then_f10_cancels_without_creation)
+{
+    tests::TempDir working_directory("tui_write_partial_f10");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-partial-f10", "nested/partial.txt", "must not be written");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("partial confirmation cancelled") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "partial-close", false);
+    CHECK(run.exited);
+    CHECK(run.dialog_seen);
+    CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
+    CHECK_EQ(server.received_bodies().size(), std::size_t(2));
+}
+
+TEST(tui3, expiry_during_partial_confirmation_quarantines_input)
+{
+    tests::TempDir working_directory("tui_write_expired_input");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-expiry-input", "nested/expired.txt", "must not be written");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("TUI_FOLLOWUP_DONE") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "expire-typed", false);
+    CHECK(run.exited);
+    CHECK(run.dialog_seen);
+    CHECK(run.expiry_notice_seen);
+    CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
+    CHECK_EQ(server.received_bodies().size(), std::size_t(2));
 }
 
 TEST(tui3, explicit_ui_mode_is_backward_compatible)

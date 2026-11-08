@@ -467,13 +467,20 @@ std::size_t TuiView::approval_content_rows(int columns, const WriteApprovalReque
 }
 
 void TuiView::draw_approval(WINDOW* window, const WriteApprovalRequest& request, std::size_t scroll_offset,
-                            std::string_view challenge, std::string_view confirmation_input)
+                            std::string_view challenge, std::string_view confirmation_input, bool expired)
 {
     int rows = 0, cols = 0;
     getmaxyx(window, rows, cols);
     if (rows <= 0 || cols <= 0) return;
     werase(window);
     (void)mvwaddnstr(window, 0, 0, "WRITE APPROVAL | arrows | Enter | F10", std::max(0, cols));
+    if (expired) {
+        if (rows > 2) (void)mvwaddnstr(window, rows - 2, 0, "Approval expired; no file was created.", std::max(0, cols));
+        if (rows > 1) (void)mvwaddnstr(window, rows - 1, 0, "Enter/Esc return; F10 quit.", std::max(0, cols));
+        (void)wnoutrefresh(window);
+        (void)doupdate();
+        return;
+    }
     if (!approval_inspectable(rows, cols)) {
         if (rows > 2) (void)mvwaddnstr(window, 2, 0, "Too small: write approval unavailable.", std::max(0, cols));
         if (rows > 3) (void)mvwaddnstr(window, rows - 1, 0, "Resize / F10 cancel", std::max(0, cols));

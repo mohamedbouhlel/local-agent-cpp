@@ -53,7 +53,7 @@ public:
     void draw(WINDOW* window, bool unicode_enabled, const TuiNavigation& navigation,
               std::string_view input, std::size_t cursor_byte);
     void draw_approval(WINDOW* window, const WriteApprovalRequest& request, std::size_t scroll_offset,
-                       std::string_view challenge, std::string_view confirmation_input);
+                       std::string_view challenge, std::string_view confirmation_input, bool expired = false);
     std::size_t approval_content_rows(int columns, const WriteApprovalRequest& request) const;
     static bool approval_inspectable(int rows, int columns) noexcept;
 

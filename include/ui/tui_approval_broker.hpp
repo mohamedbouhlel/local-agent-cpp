@@ -15,6 +15,7 @@ public:
     std::shared_ptr<const WriteApprovalRequest> pending_request() const;
     bool resolve(std::uint64_t approval_id, ApprovalDecision decision) noexcept;
     bool is_pending(std::uint64_t approval_id) const noexcept;
+    bool was_expired(std::uint64_t approval_id) const noexcept;
 
 private:
     struct Pending {
@@ -24,6 +25,7 @@ private:
     mutable std::mutex mutex_;
     std::condition_variable changed_;
     std::optional<Pending> pending_;
+    std::optional<std::uint64_t> expired_approval_id_;
     bool closed_ = false;
 };
 

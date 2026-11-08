@@ -2,11 +2,32 @@
 #include "ui/bounded_history.hpp"
 #include "ui/tui_view.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <string>
+#include <vector>
 
 using agent::ui::BoundedHistory;
 using agent::ui::BoundedHistoryLimits;
+
+namespace {
+
+std::vector<std::string> visible_rows(const agent::ui::TuiView& view,
+                                      agent::ui::TuiPage page,
+                                      int columns,
+                                      std::size_t height)
+{
+    const auto rows = view.rendered_page_rows(page, columns);
+    const auto offset = std::min(view.page_scroll_offset(page),
+                                 rows.size() > height ? rows.size() - height : std::size_t{0});
+    const auto end = rows.size() > offset ? rows.size() - offset : std::size_t{0};
+    const auto begin = end > height ? end - height : std::size_t{0};
+    return {rows.begin() + static_cast<std::ptrdiff_t>(begin),
+            rows.begin() + static_cast<std::ptrdiff_t>(end)};
+}
+
+} // namespace
 
 TEST(tui4b1, empty_and_entry_limit_evict_fifo_exactly)
 {
@@ -106,6 +127,65 @@ TEST(tui4b1, diagnostic_scroll_anchor_survives_fifo_eviction)
     view.add_diagnostic("diagnostic-32");
     CHECK_EQ(view.page_scroll_offset(agent::ui::TuiPage::diagnostics), old_offset + 2);
     CHECK(view.rendered_page_rows(agent::ui::TuiPage::diagnostics, 80).size() >= 32);
+}
+
+TEST(tui4b1, visible_rows_keep_the_same_retained_history_line_after_fifo_eviction)
+{
+    agent::ui::TuiView view;
+    constexpr std::size_t viewport_height = 5;
+    constexpr int columns = 80;
+    view.on_resize(columns, static_cast<int>(viewport_height));
+    for (int i = 0; i < 32; ++i) view.add_diagnostic("diagnostic-" + std::to_string(i));
+
+    view.scroll_page_up(agent::ui::TuiPage::diagnostics);
+    const auto before = visible_rows(view, agent::ui::TuiPage::diagnostics, columns, viewport_height);
+    CHECK(std::find_if(before.begin(), before.end(), [](const std::string& row) {
+        return row.find("diagnostic-22") != std::string::npos;
+    }) != before.end());
+
+    view.add_diagnostic("diagnostic-32");
+    const auto after = visible_rows(view, agent::ui::TuiPage::diagnostics, columns, viewport_height);
+    CHECK_EQ(view.diagnostics().evicted_count(), std::uint64_t(1));
+    CHECK(after == before);
+}
+
+TEST(tui4b1, evicted_visible_anchor_repositions_to_retained_history_and_shows_status_on_small_terminal)
+{
+    agent::ui::TuiView view;
+    constexpr std::size_t viewport_height = 4;
+    constexpr int columns = 10;
+    view.on_resize(columns, static_cast<int>(viewport_height));
+    for (int i = 0; i < 32; ++i) view.add_diagnostic("d" + std::to_string(i));
+
+    for (int i = 0; i < 10; ++i) view.scroll_page_up(agent::ui::TuiPage::diagnostics);
+    const auto before = visible_rows(view, agent::ui::TuiPage::diagnostics, columns, viewport_height);
+    CHECK(std::find_if(before.begin(), before.end(), [](const std::string& row) {
+        return row == "d0";
+    }) != before.end());
+
+    view.add_diagnostic("d32");
+    const auto after = visible_rows(view, agent::ui::TuiPage::diagnostics, columns, viewport_height);
+    CHECK_EQ(view.diagnostics().evicted_count(), std::uint64_t(1));
+    CHECK(std::find_if(after.begin(), after.end(), [](const std::string& row) {
+        return row == "d0";
+    }) == after.end());
+    CHECK(std::find_if(after.begin(), after.end(), [](const std::string& row) {
+        return row == "d1";
+    }) != after.end());
+    const auto diagnostics_status = view.status_line(agent::ui::TuiPage::diagnostics,
+                                                     agent::ui::TuiFocus::content, columns);
+    CHECK(diagnostics_status.starts_with("PARTIAL E1"));
+    CHECK(diagnostics_status.substr(0, static_cast<std::size_t>(columns)) == "PARTIAL E1");
+    CHECK(view.page_scroll_offset(agent::ui::TuiPage::diagnostics) > 0);
+
+    for (int i = 0; i < 33; ++i) view.add_tool_activity("tool-" + std::to_string(i));
+    CHECK(view.status_line(agent::ui::TuiPage::tools, agent::ui::TuiFocus::menu, columns).starts_with("PARTIAL E1"));
+    CHECK(view.status_line(agent::ui::TuiPage::diagnostics, agent::ui::TuiFocus::content, columns)
+              .starts_with("PARTIAL E1"));
+    for (const auto page : {agent::ui::TuiPage::conversation, agent::ui::TuiPage::metrics,
+                            agent::ui::TuiPage::configuration, agent::ui::TuiPage::help}) {
+        CHECK(!view.status_line(page, agent::ui::TuiFocus::menu, columns).starts_with("PARTIAL"));
+    }
 }
 
 TEST(tui4b1, sustained_insertions_keep_exact_bounds_and_counters)

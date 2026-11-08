@@ -133,41 +133,76 @@ void TuiView::add_notice(std::string_view text)
 void TuiView::set_view_data(TuiViewData data) { view_data_ = std::move(data); }
 void TuiView::add_tool_activity(std::string_view text)
 {
-    auto safe_text = sanitize_terminal_line(text);
-    const auto appended_rows = wrap(safe_text, "", "", std::max(1, last_columns_ - 1)).size();
-    const auto old_evicted = tool_activity_.evicted_count();
-    const auto old_rejected = tool_activity_.rejected_too_large_count();
-    const auto result = tool_activity_.add(std::move(safe_text));
-    const auto index = static_cast<std::size_t>(TuiPage::tools);
-    if (!page_follows_bottom_[index]) {
-        const auto max = std::numeric_limits<std::size_t>::max();
-        const auto old_notice_rows = retention_notice_rows(old_evicted, old_rejected, last_columns_);
-        const auto new_notice_rows = retention_notice_rows(tool_activity_.evicted_count(),
-                                                          tool_activity_.rejected_too_large_count(), last_columns_);
-        const std::size_t added_rows = (result.retained ? appended_rows : 0U)
-            + (new_notice_rows - old_notice_rows);
-        page_scroll_offsets_[index] = added_rows > max - page_scroll_offsets_[index]
-            ? max : page_scroll_offsets_[index] + added_rows;
-    }
+    add_panel_history(tool_activity_, TuiPage::tools, sanitize_terminal_line(text));
 }
 void TuiView::add_diagnostic(std::string_view text)
 {
-    auto safe_text = sanitize_terminal_line(text);
-    const auto appended_rows = wrap(safe_text, "", "", std::max(1, last_columns_ - 1)).size();
-    const auto old_evicted = diagnostics_.evicted_count();
-    const auto old_rejected = diagnostics_.rejected_too_large_count();
-    const auto result = diagnostics_.add(std::move(safe_text));
-    const auto index = static_cast<std::size_t>(TuiPage::diagnostics);
-    if (!page_follows_bottom_[index]) {
-        const auto max = std::numeric_limits<std::size_t>::max();
-        const auto old_notice_rows = retention_notice_rows(old_evicted, old_rejected, last_columns_);
-        const auto new_notice_rows = retention_notice_rows(diagnostics_.evicted_count(),
-                                                           diagnostics_.rejected_too_large_count(), last_columns_);
-        const std::size_t added_rows = (result.retained ? appended_rows : 0U)
-            + (new_notice_rows - old_notice_rows);
-        page_scroll_offsets_[index] = added_rows > max - page_scroll_offsets_[index]
-            ? max : page_scroll_offsets_[index] + added_rows;
+    add_panel_history(diagnostics_, TuiPage::diagnostics, sanitize_terminal_line(text));
+}
+
+void TuiView::add_panel_history(BoundedHistory& history, TuiPage page, std::string text)
+{
+    const int usable = std::max(1, last_columns_ - 1);
+    const auto appended_rows = wrap(text, "", "", usable).size();
+    const auto old_rows = rendered_page_rows(page, last_columns_);
+    const auto index = static_cast<std::size_t>(page);
+    const bool follows = page_follows_bottom_[index];
+    const auto old_offset = std::min(page_scroll_offsets_[index],
+        old_rows.size() > static_cast<std::size_t>(last_chat_height_)
+            ? old_rows.size() - static_cast<std::size_t>(last_chat_height_) : std::size_t{0});
+    const auto visible_end = old_rows.size() > old_offset ? old_rows.size() - old_offset : std::size_t{0};
+    const auto visible_begin = visible_end > static_cast<std::size_t>(last_chat_height_)
+        ? visible_end - static_cast<std::size_t>(last_chat_height_) : std::size_t{0};
+
+    std::size_t history_begin = wrap(page == TuiPage::tools ? "Declared tools:" : "Observed diagnostics:",
+                                     "", "", usable).size();
+    if (page == TuiPage::tools) {
+        if (view_data_.tools.empty()) {
+            history_begin += wrap("No tools are registered.", "", "", usable).size();
+        }
+        for (const auto& tool : view_data_.tools) {
+            history_begin += wrap(sanitize_terminal_line(tool.name) + " - "
+                                      + sanitize_terminal_line(tool.description), "", "", usable).size();
+        }
+        history_begin += wrap("Observed tool activity:", "", "", usable).size();
     }
+
+    std::vector<std::size_t> old_entry_rows;
+    old_entry_rows.reserve(history.size());
+    for (const auto& entry : history.entries()) {
+        old_entry_rows.push_back(wrap(entry, "", "", usable).size());
+    }
+
+    const auto old_evicted = history.evicted_count();
+    const auto old_rejected = history.rejected_too_large_count();
+    const auto result = history.add(std::move(text));
+    if (follows) return;
+
+    bool visible_entry_evicted = false;
+    std::size_t evicted_rows = 0;
+    for (std::size_t i = 0; i < result.evicted_entries; ++i) evicted_rows += old_entry_rows[i];
+    if (evicted_rows != 0) {
+        const auto evicted_begin = history_begin;
+        const auto evicted_end = history_begin + evicted_rows;
+        visible_entry_evicted = visible_begin < evicted_end && evicted_begin < visible_end;
+    }
+
+    if (visible_entry_evicted) {
+        const auto new_rows = rendered_page_rows(page, last_columns_).size();
+        const auto visible = static_cast<std::size_t>(last_chat_height_);
+        page_scroll_offsets_[index] = new_rows > visible ? new_rows - visible : 0;
+        page_follows_bottom_[index] = false;
+        return;
+    }
+
+    const auto max = std::numeric_limits<std::size_t>::max();
+    const auto old_notice_rows = retention_notice_rows(old_evicted, old_rejected, last_columns_);
+    const auto new_notice_rows = retention_notice_rows(history.evicted_count(),
+                                                       history.rejected_too_large_count(), last_columns_);
+    const std::size_t added_rows = (result.retained ? appended_rows : 0U)
+        + (new_notice_rows - old_notice_rows);
+    page_scroll_offsets_[index] = added_rows > max - page_scroll_offsets_[index]
+        ? max : page_scroll_offsets_[index] + added_rows;
 }
 void TuiView::scroll_up()
 {
@@ -300,6 +335,28 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns) 
     return result;
 }
 
+std::string TuiView::status_line(TuiPage page, TuiFocus focus, int columns) const
+{
+    const BoundedHistory* history = page == TuiPage::tools ? &tool_activity_
+        : page == TuiPage::diagnostics ? &diagnostics_ : nullptr;
+    std::string label;
+    if (history && (history->evicted_count() != 0 || history->rejected_too_large_count() != 0)) {
+        label = "PARTIAL";
+        if (columns >= 10 && history->evicted_count() != 0) {
+            label += " E" + std::to_string(history->evicted_count());
+        }
+        if (columns >= 10 && history->rejected_too_large_count() != 0) {
+            label += " R" + std::to_string(history->rejected_too_large_count());
+        }
+    }
+    const std::string active = std::to_string(static_cast<int>(page) + 1) + "/6 "
+        + TuiNavigation::short_page_name(page);
+    const char* focus_label = focus == TuiFocus::composer ? "INPUT" :
+                              focus == TuiFocus::menu ? "MENU" : "VIEW";
+    return label.empty() ? active + " [" + focus_label + "] " + status_
+                         : label + " " + active + " [" + focus_label + "] " + status_;
+}
+
 void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation,
                    std::string_view input, std::size_t cursor)
 {
@@ -320,9 +377,7 @@ void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation
     }
     if (navigation.focus() == TuiFocus::menu) menu = "> " + menu;
     (void)mvwaddnstr(window, 0, 0, menu.c_str(), std::max(0, cols));
-    const char* focus_label = navigation.focus() == TuiFocus::composer ? "INPUT" :
-                              navigation.focus() == TuiFocus::menu ? "MENU" : "VIEW";
-    const std::string status = active + " [" + focus_label + "] " + status_;
+    const std::string status = status_line(page, navigation.focus(), cols);
     if (rows > 1) (void)mvwaddnstr(window, 1, 0, status.c_str(), std::max(0, cols));
     const int chat_top = std::min(2, rows - 1);
     const bool conversation = page == TuiPage::conversation;

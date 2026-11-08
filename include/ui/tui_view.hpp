@@ -42,6 +42,7 @@ public:
     // wrapping and multiline role-label behavior can be tested deterministically.
     std::vector<std::string> rendered_conversation_rows(int columns) const;
     std::vector<std::string> rendered_page_rows(TuiPage page, int columns) const;
+    std::string status_line(TuiPage page, TuiFocus focus, int columns) const;
 
     void scroll_up();
     void scroll_down();
@@ -62,6 +63,7 @@ public:
 private:
     int chat_height_for(int rows) const noexcept;
     void preserve_anchor_after_content_change(std::size_t previous_rows);
+    void add_panel_history(BoundedHistory& history, TuiPage page, std::string text);
 
     std::vector<TuiMessage> messages_;
     TuiViewData view_data_;

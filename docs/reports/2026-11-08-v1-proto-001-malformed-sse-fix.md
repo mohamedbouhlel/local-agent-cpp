@@ -171,4 +171,10 @@ Le test PTY vérifie correctement l'absence d'écriture et le résultat outil, m
 
 Le défaut de drainage/rendu TUI a été traité séparément, sans modifier le correctif SSE. Son rapport est `docs/reports/2026-11-08-tui-final-event-drain-on-close.md` sur la branche `fix/tui-close-final-drain`; ses résultats ne sont pas ceux du worktree SSE et les deux changements n'ont pas été fusionnés.
 
-La validation combinée des commits SSE et TUI est à consigner après exécution dans un environnement temporaire; les résultats des branches séparées ne constituent pas cette preuve.
+## Validation croisée avec le correctif TUI
+
+Les correctifs ont été composés dans un worktree temporaire isolé à partir de `df44cabbfa3e5d4217f496a3ecd9b23ac6ac4e1a`. La composition finale, incluant la stabilisation du test du broker, est le commit local `97692037a454eb58e5819245e45157111d3653b1` sur `validation/v1-both-fixes` (branche de validation uniquement).
+
+Build C++20 propre réussi. Le premier CTest combiné a échoué une fois dans `tui2.approval_broker_accepts_only_current_request_and_close_wakes_waiter`: son attente était une boucle de 200 `yield()` et ne garantissait pas que le worker ait publié sa demande sous charge. Après remplacement dans les deux branches par une attente bornée de `pending_request()` avec pause de 1 ms et vérification explicite avant fermeture, le groupe TUI-2 ciblé passe (13 cas, 117 assertions), le harnais combiné passe (253 cas, 8 044 assertions) et CTest passe 13/13 groupes en 30,18 s. Aucun code de production n'a été modifié par cette stabilisation.
+
+La composition a nécessité deux résolutions textuelles : conserver les deux nouvelles entrées indépendantes de `docs/README.md`, et ne garder qu'une copie des modifications identiques du helper de défi dans `tests/write_authorization_test.cpp`. Le fichier `tests/tui_test.cpp` s'est fusionné automatiquement. `src/agent.cpp` et `src/ui/tui_event_loop.cpp` restent des changements de production distincts. Il s'agit d'une validation conjointe, pas d'une fusion sur `main`.

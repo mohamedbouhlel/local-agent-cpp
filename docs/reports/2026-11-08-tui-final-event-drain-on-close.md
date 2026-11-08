@@ -64,3 +64,11 @@ Le canal d'événements reste borné. Le drainage final récupère les événeme
 ## Verdict
 
 **PRÊT POUR REVUE.** Le test de fermeture est stable sur les 30 répétitions demandées, les contrôles filesystem et le résultat outil sont vérifiés, et le build/CTest/harness complets passent. Aucun commit, push, PR ou merge n'a été effectué.
+
+## Validation croisée avec V1-PROTO-001
+
+Les deux commits ont été composés dans un worktree temporaire isolé à partir de `df44cabbfa3e5d4217f496a3ecd9b23ac6ac4e1a`. La composition finale, incluant la stabilisation du test du broker, est le commit local `97692037a454eb58e5819245e45157111d3653b1` sur `validation/v1-both-fixes` (branche de validation uniquement).
+
+Le premier CTest combiné a échoué dans `tui2.approval_broker_accepts_only_current_request_and_close_wakes_waiter`: le test sondait `pending_request()` seulement 200 fois avec `yield()`. Le ciblage suivant a passé. Pour retirer cette course de test, les deux branches modifient maintenant ce helper de façon identique : interrogation jusqu'à une échéance bornée d'une seconde avec une pause de 1 ms, et vérification que la demande de fermeture est effectivement en attente. Aucun code du broker n'a changé. Après cette correction, le ciblage TUI-2 a passé (13 cas, 117 assertions), le harnais combiné a passé (253 cas, 8 044 assertions) et CTest a passé 13/13 groupes en 30,18 s.
+
+La composition a eu deux conflits textuels résolus : les lignes distinctes d'index dans `docs/README.md` ont toutes deux été conservées; dans `tests/write_authorization_test.cpp`, les deux branches apportaient le même prédicat attendant le défi complet et les mêmes délais de test, conservés une seule fois. `tests/tui_test.cpp` s'est fusionné automatiquement. Le code de production TUI et SSE touche des fichiers séparés. Cette validation combinée ne constitue pas une fusion et aucun changement n'a été appliqué à `main`.

@@ -484,11 +484,15 @@ TEST(tui2, approval_broker_accepts_only_current_request_and_close_wakes_waiter)
     request->approval_id = 42;
     request->expires_at = std::chrono::steady_clock::now() + 2s;
     auto waiting = std::async(std::launch::async, [&] { return broker.request(request); });
-    std::shared_ptr<const WriteApprovalRequest> pending;
-    for (int i = 0; i < 200 && !pending; ++i) {
-        pending = broker.pending_request();
-        if (!pending) std::this_thread::yield();
-    }
+    const auto wait_until_pending = [](agent::ui::TuiApprovalBroker& target) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (auto pending = target.pending_request()) return pending;
+            std::this_thread::sleep_for(1ms);
+        }
+        return std::shared_ptr<const WriteApprovalRequest>{};
+    };
+    auto pending = wait_until_pending(broker);
     CHECK(pending != nullptr);
     CHECK(!broker.resolve(41, ApprovalDecision::approved));
     CHECK(broker.resolve(42, ApprovalDecision::approved));
@@ -500,7 +504,8 @@ TEST(tui2, approval_broker_accepts_only_current_request_and_close_wakes_waiter)
     second->approval_id = 43;
     second->expires_at = std::chrono::steady_clock::now() + 2s;
     auto blocked = std::async(std::launch::async, [&] { return closing.request(second); });
-    for (int i = 0; i < 200 && !closing.pending_request(); ++i) std::this_thread::yield();
+    const auto closing_pending = wait_until_pending(closing);
+    CHECK(closing_pending != nullptr);
     closing.cancel_pending();
     CHECK(blocked.wait_for(1s) == std::future_status::ready);
     CHECK(blocked.get() == ApprovalDecision::cancelled);

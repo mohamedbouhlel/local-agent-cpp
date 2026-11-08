@@ -55,9 +55,10 @@ void workspace_write_internal::verify_published_file(int directory_fd, const std
     }
 }
 
-std::string write_workspace(const std::filesystem::path& root,
-                            const std::filesystem::path& relative,
-                            const std::string& content)
+namespace {
+std::string write_workspace_impl(const std::filesystem::path& root,
+                                 const std::filesystem::path& relative,
+                                 const std::string& content)
 {
     if (relative.empty() || relative.is_absolute() || relative.filename().empty()
         || relative.filename() == "." || relative.native().find('\0') != std::string::npos) {
@@ -145,4 +146,19 @@ std::string write_workspace(const std::filesystem::path& root,
     workspace_write_internal::verify_published_file(dir.get(), filename, file.get());
     return "wrote " + std::to_string(content.size()) + " bytes to " + display
         + " (created new file)";
+}
+} // namespace
+
+std::string write_workspace(PreparedWrite&& prepared)
+{
+    if (prepared.consumed_ || prepared.approval_id_ == 0 || prepared.root_.empty()
+        || prepared.relative_.empty()) {
+        throw std::invalid_argument("prepared write is invalid or already consumed");
+    }
+    prepared.consumed_ = true;
+    const auto root = std::move(prepared.root_);
+    const auto relative = std::move(prepared.relative_);
+    const auto content = std::move(prepared.content_);
+    prepared.approval_id_ = 0;
+    return write_workspace_impl(root, relative, content);
 }

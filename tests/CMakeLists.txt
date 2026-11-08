@@ -9,6 +9,7 @@ add_executable(agent_tests
   mock_http_server_test.cpp
   sse_parser_test.cpp
   workspace_tools_test.cpp
+  write_authorization_test.cpp
   filesystem_sandbox_test.cpp
   http_client_test.cpp
   agent_events_test.cpp

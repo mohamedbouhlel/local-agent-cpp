@@ -2,6 +2,7 @@
 #include "test_support.hpp"
 #include "tool_registry.hpp"
 #include "workspace_tools.hpp"
+#include "test_approval_provider.hpp"
 
 #include <cerrno>
 #include <filesystem>
@@ -98,7 +99,7 @@ TEST(sandbox, denies_filesystem_access_outside_workspace)
 
         try {
             ToolRegistry registry;
-            register_workspace_tools(registry, workspace);
+            register_workspace_tools(registry, workspace, test_approval_provider());
             registry.execute("write_file", R"({"path":"landlock.txt","content":"confined"})");
             if (registry.execute("read_file", R"({"path":"landlock.txt"})") != "confined") {
                 ::_exit(29);

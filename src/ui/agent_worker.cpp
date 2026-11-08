@@ -41,6 +41,8 @@ std::size_t EventChannel::payload_bytes(const AgentEvent& event) noexcept
             using Payload = std::decay_t<decltype(payload)>;
             if constexpr (std::is_same_v<Payload, TextDelta>) {
                 bytes = add_saturated(bytes, payload.text.size());
+            } else if constexpr (std::is_same_v<Payload, ToolAuthorizationRequested>) {
+                bytes = add_saturated(bytes, payload.name.size());
             } else if constexpr (std::is_same_v<Payload, ToolStarted>
                                  || std::is_same_v<Payload, ToolSucceeded>
                                  || std::is_same_v<Payload, ToolFailed>) {

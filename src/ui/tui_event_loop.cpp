@@ -10,9 +10,11 @@
 
 namespace agent::ui {
 
-TuiEventLoop::TuiEventLoop(AgentWorker& worker, TerminalSession& terminal, TuiView& view)
-    : worker_(worker), terminal_(terminal), view_(view)
+TuiEventLoop::TuiEventLoop(AgentWorker& worker, TerminalSession& terminal, TuiView& view,
+                           std::shared_ptr<TuiApprovalBroker> approvals)
+    : worker_(worker), terminal_(terminal), view_(view), approvals_(std::move(approvals))
 {
+    if (!approvals_) throw std::invalid_argument("TUI event loop requires an approval broker");
 }
 
 int TuiEventLoop::run()
@@ -21,6 +23,7 @@ int TuiEventLoop::run()
     if (window == nullptr) throw std::runtime_error("terminal session has no screen");
     while (!closing_ || active_turn_) {
         bool changed = drain_events();
+        changed = sync_approval_dialog() || changed;
         changed = collect_completion() || changed;
         int rows = 0, cols = 0;
         getmaxyx(window, rows, cols);
@@ -30,13 +33,20 @@ int TuiEventLoop::run()
             view_.set_status("Terminal resized; compact layout active when space is limited.");
             changed = true;
         }
-        if (changed || dirty_) { view_.draw(window, terminal_.unicode_enabled(), navigation_, input_, cursor_byte_); dirty_ = false; }
+        if (changed || dirty_) {
+            if (approval_request_) view_.draw_approval(window, *approval_request_, approval_scroll_,
+                                                       approval_challenge_, approval_confirmation_input_);
+            else view_.draw(window, terminal_.unicode_enabled(), navigation_, input_, cursor_byte_);
+            dirty_ = false;
+        }
         wint_t key{};
         const int rc = wget_wch(window, &key);
         if (rc != ERR && handle_key(key, rc == KEY_CODE_YES)) {
             dirty_ = true;
             if (closing_ && active_turn_) {
-                view_.draw(window, terminal_.unicode_enabled(), navigation_, input_, cursor_byte_);
+                if (approval_request_) view_.draw_approval(window, *approval_request_, approval_scroll_,
+                                                           approval_challenge_, approval_confirmation_input_);
+                else view_.draw(window, terminal_.unicode_enabled(), navigation_, input_, cursor_byte_);
                 dirty_ = false;
             }
         }
@@ -46,9 +56,86 @@ int TuiEventLoop::run()
             dirty_ = false;
         }
     }
+    approvals_->cancel_pending();
     worker_.request_close();
     worker_.join();
     return 0;
+}
+
+bool TuiEventLoop::sync_approval_dialog()
+{
+    const auto pending = approvals_->pending_request();
+    if (pending && (!approval_request_ || pending->approval_id != approval_request_->approval_id)) {
+        std::string challenge;
+        try { challenge = generate_approval_challenge(); }
+        catch (...) {
+            static_cast<void>(approvals_->resolve(pending->approval_id, ApprovalDecision::unavailable));
+            return true;
+        }
+        approval_request_ = pending;
+        approval_challenge_ = std::move(challenge);
+        approval_confirmation_input_.clear();
+        approval_scroll_ = 0;
+        return true;
+    }
+    if (approval_request_ && !approvals_->is_pending(approval_request_->approval_id)) {
+        approval_request_.reset();
+        approval_challenge_.clear();
+        approval_confirmation_input_.clear();
+        approval_scroll_ = 0;
+        return true;
+    }
+    return false;
+}
+
+bool TuiEventLoop::handle_approval_key(wint_t key, bool key_code)
+{
+    if (!approval_request_) return false;
+    int rows = 0, cols = 0;
+    getmaxyx(terminal_.window(), rows, cols);
+    const auto page = static_cast<std::size_t>(std::max(1, rows - 2));
+    if (key_code) {
+        if (key == KEY_F(10)) { approvals_->resolve(approval_request_->approval_id, ApprovalDecision::cancelled); request_exit(); return true; }
+        if (key == KEY_ENTER) {
+            const auto decision = !TuiView::approval_inspectable(rows, cols) ? ApprovalDecision::unavailable
+                : matches_approval_confirmation(approval_challenge_, approval_confirmation_input_)
+                    ? ApprovalDecision::approved : ApprovalDecision::denied;
+            static_cast<void>(approvals_->resolve(approval_request_->approval_id, decision));
+            return true;
+        }
+        if (key == KEY_BACKSPACE || key == KEY_DC) {
+            if (!approval_confirmation_input_.empty()) approval_confirmation_input_.pop_back();
+            return true;
+        }
+        if (key == KEY_UP) { if (approval_scroll_ > 0) --approval_scroll_; return true; }
+        if (key == KEY_DOWN) { ++approval_scroll_; return true; }
+        if (key == KEY_PPAGE) { approval_scroll_ = approval_scroll_ > page ? approval_scroll_ - page : 0; return true; }
+        if (key == KEY_NPAGE) { approval_scroll_ += page; return true; }
+        if (key == KEY_RESIZE) return true;
+        return true;
+    }
+    if (key == 'y' || key == 'Y') {
+        if (approval_confirmation_input_.size() < 64) approval_confirmation_input_.push_back(static_cast<char>(key));
+        return true;
+    }
+    if (key == 'n' || key == 'N') { static_cast<void>(approvals_->resolve(approval_request_->approval_id, ApprovalDecision::denied)); return true; }
+    if (key == 27) { static_cast<void>(approvals_->resolve(approval_request_->approval_id, ApprovalDecision::cancelled)); return true; }
+    if (key == 10 || key == 13) {
+        const auto decision = !TuiView::approval_inspectable(rows, cols) ? ApprovalDecision::unavailable
+            : matches_approval_confirmation(approval_challenge_, approval_confirmation_input_)
+                ? ApprovalDecision::approved : ApprovalDecision::denied;
+        static_cast<void>(approvals_->resolve(approval_request_->approval_id, decision));
+        return true;
+    }
+    if (key == KEY_BACKSPACE || key == 127 || key == 8) {
+        if (!approval_confirmation_input_.empty()) approval_confirmation_input_.pop_back();
+        return true;
+    }
+    if (key >= 32 && key <= 126 && approval_confirmation_input_.size() < 64) {
+        approval_confirmation_input_.push_back(static_cast<char>(key));
+        return true;
+    }
+    return true;
 }
 
 bool TuiEventLoop::drain_events()
@@ -101,6 +188,22 @@ void TuiEventLoop::handle_event(const AgentEvent& event)
             const auto safe = sanitizer_.feed(payload.text);
             if (!safe.empty()) view_.append_assistant_delta(safe);
             view_.set_status("Receiving model stream…");
+        } else if constexpr (std::is_same_v<T, ToolAuthorizationRequested>) {
+            view_.set_status("Waiting for explicit write approval.");
+        } else if constexpr (std::is_same_v<T, ToolAuthorizationResolved>) {
+            const auto status = payload.status;
+            const auto authorization_message = status == ToolAuthorizationStatus::approved ? "write_file approval granted; execution follows."
+                : status == ToolAuthorizationStatus::denied ? "write_file refused; no file was created."
+                : status == ToolAuthorizationStatus::cancelled ? "write_file approval cancelled; no file was created."
+                : status == ToolAuthorizationStatus::expired ? "write_file approval expired; no file was created."
+                : "write_file approval unavailable; no file was created.";
+            view_.add_diagnostic(authorization_message);
+            if (status != ToolAuthorizationStatus::approved) view_.add_notice(authorization_message);
+            view_.set_status(status == ToolAuthorizationStatus::approved ? "Write approved; starting writer."
+                : status == ToolAuthorizationStatus::denied ? "Write refused; agent may continue."
+                : status == ToolAuthorizationStatus::cancelled ? "Write cancelled; agent may continue."
+                : status == ToolAuthorizationStatus::expired ? "Write approval expired; agent may continue."
+                : "Write approval unavailable; agent may continue.");
         } else if constexpr (std::is_same_v<T, ToolStarted>) {
             const auto name = sanitize_terminal_line(payload.name);
             view_.add_tool_activity("Started: " + name);
@@ -170,6 +273,7 @@ bool TuiEventLoop::collect_completion()
 
 bool TuiEventLoop::handle_key(wint_t key, bool key_code)
 {
+    if (approval_request_) return handle_approval_key(key, key_code);
     if (key_code) {
         if (key == KEY_F(10)) { request_exit(); return true; }
         if (key == KEY_F(9)) {
@@ -243,6 +347,7 @@ void TuiEventLoop::request_exit()
 {
     if (closing_) return;
     closing_ = true;
+    approvals_->cancel_pending();
     worker_.request_close();
     if (active_turn_) view_.set_status("Waiting for active request/tool; cancellation is unavailable.");
     else view_.set_status("Closing.");

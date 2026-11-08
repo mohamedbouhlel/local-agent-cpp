@@ -32,6 +32,8 @@ enum class EventType {
     RequestStarted,
     HttpRequestStarted,
     TextDelta,
+    ToolAuthorizationRequested,
+    ToolAuthorizationResolved,
     ToolStarted,
     ToolSucceeded,
     ToolFailed,
@@ -62,6 +64,11 @@ struct HttpRequestStarted {
 struct TextDelta {
     std::string text;
 };
+
+enum class ToolAuthorizationStatus { approved, denied, cancelled, unavailable, expired };
+
+struct ToolAuthorizationRequested { std::string name; };
+struct ToolAuthorizationResolved { ToolAuthorizationStatus status = ToolAuthorizationStatus::unavailable; };
 
 struct ToolStarted {
     std::string name;
@@ -116,6 +123,8 @@ struct TurnFinished {
 using EventPayload = std::variant<RequestStarted,
                                   HttpRequestStarted,
                                   TextDelta,
+                                  ToolAuthorizationRequested,
+                                  ToolAuthorizationResolved,
                                   ToolStarted,
                                   ToolSucceeded,
                                   ToolFailed,

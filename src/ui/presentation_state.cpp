@@ -114,6 +114,10 @@ EventApplyResult PresentationState::apply(const AgentEvent& event)
         snapshot_.last_request_id.reset();
         snapshot_.active_tool_call_id.reset();
         snapshot_.active_tool_name.clear();
+        snapshot_.pending_authorization_tool_call_id.reset();
+        snapshot_.pending_authorization_tool_name.clear();
+        snapshot_.approved_authorization_tool_call_id.reset();
+        snapshot_.approved_authorization_tool_name.clear();
         snapshot_.http_requests = 0;
         snapshot_.tools_started = 0;
         snapshot_.tools_succeeded = 0;
@@ -180,6 +184,46 @@ EventApplyResult PresentationState::apply(const AgentEvent& event)
         snapshot_.phase = PresentationPhase::waiting;
         break;
     }
+    case EventType::ToolAuthorizationRequested: {
+        const auto* payload = std::get_if<ToolAuthorizationRequested>(&event.payload);
+        if (payload == nullptr || payload->name != "write_file" || !event.metadata.tool_call_id
+            || event.metadata.tool_call_id->value.empty() || !event.metadata.request_id || !matching_last_request
+            || turn_id != snapshot_.turn_id.value_or(TurnId{}) || snapshot_.phase != PresentationPhase::waiting
+            || snapshot_.active_request_id || active_tool_ || snapshot_.pending_authorization_tool_call_id
+            || snapshot_.approved_authorization_tool_call_id
+            || snapshot_.last_http_outcome != HttpRequestOutcome::completed) {
+            return reject(EventApplyStatus::inconsistent, "write authorization request has invalid state or correlation");
+        }
+        if (std::find(tool_ids_in_turn_.begin(), tool_ids_in_turn_.end(), *event.metadata.tool_call_id)
+            != tool_ids_in_turn_.end()) {
+            return reject(EventApplyStatus::inconsistent, "tool call id was already used in this turn");
+        }
+        tool_ids_in_turn_.push_back(*event.metadata.tool_call_id);
+        snapshot_.pending_authorization_tool_call_id = event.metadata.tool_call_id;
+        snapshot_.pending_authorization_tool_name = payload->name;
+        break;
+    }
+    case EventType::ToolAuthorizationResolved: {
+        const auto* payload = std::get_if<ToolAuthorizationResolved>(&event.payload);
+        if (payload == nullptr || !event.metadata.tool_call_id || !event.metadata.request_id || !matching_last_request
+            || turn_id != snapshot_.turn_id.value_or(TurnId{}) || snapshot_.phase != PresentationPhase::waiting
+            || snapshot_.active_request_id || active_tool_ || !snapshot_.pending_authorization_tool_call_id
+            || *snapshot_.pending_authorization_tool_call_id != *event.metadata.tool_call_id) {
+            return reject(EventApplyStatus::inconsistent, "write authorization result does not match a pending request");
+        }
+        snapshot_.pending_authorization_tool_call_id.reset();
+        snapshot_.pending_authorization_tool_name.clear();
+        if (payload->status == ToolAuthorizationStatus::approved) {
+            snapshot_.approved_authorization_tool_call_id = event.metadata.tool_call_id;
+            snapshot_.approved_authorization_tool_name = "write_file";
+        } else if (payload->status != ToolAuthorizationStatus::denied
+                   && payload->status != ToolAuthorizationStatus::cancelled
+                   && payload->status != ToolAuthorizationStatus::unavailable
+                   && payload->status != ToolAuthorizationStatus::expired) {
+            return reject(EventApplyStatus::inconsistent, "invalid write authorization status");
+        }
+        break;
+    }
     case EventType::ToolStarted: {
         const auto* payload = std::get_if<ToolStarted>(&event.payload);
         if (payload == nullptr || payload->name.empty() || !event.metadata.tool_call_id
@@ -187,16 +231,25 @@ EventApplyResult PresentationState::apply(const AgentEvent& event)
             || !matching_last_request) {
             return reject(EventApplyStatus::inconsistent, "ToolStarted is missing valid tool/request correlation");
         }
+        const bool authorized = snapshot_.approved_authorization_tool_call_id
+            && *snapshot_.approved_authorization_tool_call_id == *event.metadata.tool_call_id
+            && snapshot_.approved_authorization_tool_name == payload->name;
         if (turn_id != snapshot_.turn_id.value_or(TurnId{}) || snapshot_.phase != PresentationPhase::waiting
             || snapshot_.active_request_id || active_tool_
+            || snapshot_.pending_authorization_tool_call_id
             || snapshot_.last_http_outcome != HttpRequestOutcome::completed) {
             return reject(EventApplyStatus::inconsistent, "tool cannot start before a completed response");
         }
-        if (std::find(tool_ids_in_turn_.begin(), tool_ids_in_turn_.end(), *event.metadata.tool_call_id)
-            != tool_ids_in_turn_.end()) {
-            return reject(EventApplyStatus::inconsistent, "tool call id was already used in this turn");
+        if (authorized) {
+            snapshot_.approved_authorization_tool_call_id.reset();
+            snapshot_.approved_authorization_tool_name.clear();
+        } else {
+            if (std::find(tool_ids_in_turn_.begin(), tool_ids_in_turn_.end(), *event.metadata.tool_call_id)
+                != tool_ids_in_turn_.end()) {
+                return reject(EventApplyStatus::inconsistent, "tool call id was already used in this turn");
+            }
+            tool_ids_in_turn_.push_back(*event.metadata.tool_call_id);
         }
-        tool_ids_in_turn_.push_back(*event.metadata.tool_call_id);
         active_tool_ = ActiveTool{*event.metadata.tool_call_id, *event.metadata.request_id, payload->name};
         snapshot_.active_tool_call_id = event.metadata.tool_call_id;
         snapshot_.active_tool_name = payload->name;
@@ -238,7 +291,8 @@ EventApplyResult PresentationState::apply(const AgentEvent& event)
             return reject(EventApplyStatus::inconsistent, "RequestFailed has invalid correlation metadata");
         }
         if (turn_id != snapshot_.turn_id.value_or(TurnId{}) || is_terminal(snapshot_.phase)
-            || snapshot_.active_request_id || active_tool_ || snapshot_.request_failed) {
+            || snapshot_.active_request_id || active_tool_ || snapshot_.pending_authorization_tool_call_id
+            || snapshot_.approved_authorization_tool_call_id || snapshot_.request_failed) {
             return reject(EventApplyStatus::inconsistent, "RequestFailed arrived in the current invalid state");
         }
         if (event.metadata.request_id != snapshot_.last_request_id) {
@@ -254,7 +308,8 @@ EventApplyResult PresentationState::apply(const AgentEvent& event)
             return reject(EventApplyStatus::inconsistent, "TurnFinished has unexpected payload metadata");
         }
         if (turn_id != snapshot_.turn_id.value_or(TurnId{}) || is_terminal(snapshot_.phase)
-            || snapshot_.active_request_id || active_tool_) {
+            || snapshot_.active_request_id || active_tool_ || snapshot_.pending_authorization_tool_call_id
+            || snapshot_.approved_authorization_tool_call_id) {
             return reject(EventApplyStatus::inconsistent, "turn cannot finish in the current state");
         }
         if (payload->http_requests != snapshot_.http_requests || payload->tools_succeeded != snapshot_.tools_succeeded

@@ -3,7 +3,23 @@
 #include <cstddef>
 #include <istream>
 #include <ostream>
+#include <streambuf>
 #include <string>
+
+// Reads one byte at a time from an existing descriptor. This avoids reading
+// ahead into the next interactive line when the same terminal is also used by
+// a later synchronous prompt (for example write approval).
+class FdInputStreamBuffer final : public std::streambuf {
+public:
+    explicit FdInputStreamBuffer(int fd) noexcept : fd_(fd) {}
+
+protected:
+    int_type underflow() override;
+
+private:
+    int fd_;
+    char current_{};
+};
 
 // Lecture d'UNE interaction REPL, en mode simple (une ligne) ou multiline
 // (bloc terminé par ":end"). Composant volontairement isolé : il ne connaît ni

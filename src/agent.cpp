@@ -206,6 +206,10 @@ agent::ui::EventType agent::ui::AgentEvent::type() const noexcept
                 return agent::ui::EventType::HttpRequestStarted;
             } else if constexpr (std::is_same_v<Payload, agent::ui::TextDelta>) {
                 return agent::ui::EventType::TextDelta;
+            } else if constexpr (std::is_same_v<Payload, agent::ui::ToolAuthorizationRequested>) {
+                return agent::ui::EventType::ToolAuthorizationRequested;
+            } else if constexpr (std::is_same_v<Payload, agent::ui::ToolAuthorizationResolved>) {
+                return agent::ui::EventType::ToolAuthorizationResolved;
             } else if constexpr (std::is_same_v<Payload, agent::ui::ToolStarted>) {
                 return agent::ui::EventType::ToolStarted;
             } else if constexpr (std::is_same_v<Payload, agent::ui::ToolSucceeded>) {
@@ -405,29 +409,57 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
                 const auto name = tool_call.at("function").at("name").get<std::string>();
                 const auto arguments = tool_call.at("function").value("arguments", "{}");
 
-                if (callbacks.on_tool_call) {
-                    try {
-                        callbacks.on_tool_call(name);
-                    } catch (...) {
-                        legacy_callback_failed = true;
-                        throw;
-                    }
-                }
-                publish_event([&] { return EventPayload{ToolStarted{name}}; }, turn_id, request_id, tool_call_id);
-
                 const auto tool_started_at = std::chrono::steady_clock::now();
                 std::string result;
                 bool ok = true;
+                bool started = false;
+                auto start_tool = [&] {
+                    if (callbacks.on_tool_call) {
+                        try { callbacks.on_tool_call(name); }
+                        catch (...) { legacy_callback_failed = true; throw; }
+                    }
+                    publish_event([&] { return EventPayload{ToolStarted{name}}; }, turn_id, request_id, tool_call_id);
+                    started = true;
+                };
                 try {
-                    result = tools_.execute(name, arguments);
+                    ToolInvocationContext invocation_context{session_id_.value, turn_id.value,
+                                                             request_id.value, tool_call_id};
+                    auto invocation = tools_.prepare_execution(name, arguments, invocation_context);
+                    if (const auto approval = invocation->approval_request()) {
+                        publish_event([&] { return EventPayload{ToolAuthorizationRequested{name}}; },
+                                      turn_id, request_id, tool_call_id);
+                        const auto decision = invocation->authorize();
+                        const auto status = decision == ApprovalDecision::approved ? ToolAuthorizationStatus::approved
+                            : decision == ApprovalDecision::denied ? ToolAuthorizationStatus::denied
+                            : decision == ApprovalDecision::cancelled ? ToolAuthorizationStatus::cancelled
+                            : decision == ApprovalDecision::expired ? ToolAuthorizationStatus::expired
+                            : ToolAuthorizationStatus::unavailable;
+                        publish_event([&] { return EventPayload{ToolAuthorizationResolved{status}}; },
+                                      turn_id, request_id, tool_call_id);
+                        if (decision != ApprovalDecision::approved) {
+                            result = decision == ApprovalDecision::denied ? "write authorization denied; no file was created"
+                                : decision == ApprovalDecision::cancelled ? "write authorization cancelled; no file was created"
+                                : decision == ApprovalDecision::expired ? "write authorization expired; no file was created"
+                                : "write authorization unavailable; no file was created";
+                            append_message({make_tool_message(tool_call_id, result)});
+                            continue;
+                        }
+                        (void)approval;
+                    }
+                    start_tool();
+                    result = invocation->execute();
                 } catch (const std::exception& error) {
+                    if (legacy_callback_failed) throw;
+                    if (!started) start_tool();
                     ok = false;
                     result = std::string("tool error: ") + error.what();
                 } catch (...) {
+                    if (legacy_callback_failed) throw;
                     // Preserve the historical propagation of non-standard
                     // handler exceptions while reporting this real execution
                     // failure to observers.
                     const auto tool_duration = std::chrono::steady_clock::now() - tool_started_at;
+                    if (!started) start_tool();
                     ++tools_failed;
                     publish_event([&] { return EventPayload{ToolFailed{name, tool_duration}}; },
                                   turn_id,

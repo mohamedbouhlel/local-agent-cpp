@@ -15,11 +15,11 @@
 #include <string>
 #include <utility>
 #include <cerrno>
+#include <memory>
 
 namespace {
 
 constexpr std::size_t max_read_chars = 50'000;
-constexpr std::size_t max_write_chars = 200'000;
 constexpr std::size_t binary_probe_bytes = 4096;
 
 std::filesystem::path canonical_workspace_root(const std::filesystem::path& workspace_root)
@@ -162,23 +162,50 @@ std::string search_files(const std::filesystem::path& root, const nlohmann::json
     return search_workspace(root, query);
 }
 
-std::string write_file(const std::filesystem::path& root, const nlohmann::json& args)
+class WorkspaceWriteInvocation final : public ToolInvocation {
+public:
+    WorkspaceWriteInvocation(std::shared_ptr<WorkspaceWriteAuthorizer> authorizer,
+                             std::shared_ptr<const WriteApprovalRequest> request)
+        : authorizer_(std::move(authorizer)), request_(std::move(request)) {}
+
+    std::shared_ptr<const WriteApprovalRequest> approval_request() const override { return request_; }
+
+    ApprovalDecision authorize() override
+    {
+        auto result = authorizer_->authorize(request_);
+        if (auto* prepared = std::get_if<PreparedWrite>(&result)) {
+            prepared_.emplace(std::move(*prepared));
+            return ApprovalDecision::approved;
+        }
+        return std::get<ApprovalDecision>(result);
+    }
+
+    std::string execute() override
+    {
+        if (!prepared_) throw std::logic_error("write execution requires an approved PreparedWrite");
+        return write_workspace(std::move(*prepared_));
+    }
+
+private:
+    std::shared_ptr<WorkspaceWriteAuthorizer> authorizer_;
+    std::shared_ptr<const WriteApprovalRequest> request_;
+    std::optional<PreparedWrite> prepared_;
+};
+
+std::unique_ptr<ToolInvocation> prepare_write_file(
+    const std::shared_ptr<WorkspaceWriteAuthorizer>& authorizer,
+    nlohmann::json args,
+    const ToolInvocationContext& invocation)
 {
     const auto overwrite = optional_bool_arg(args, "overwrite", false);
     if (overwrite) {
         throw std::invalid_argument(
             "overwrite is temporarily disabled until workspace access uses an isolated system identity");
     }
-    const auto path = sandbox_path(root, require_string_arg(args, "path"));
+    const auto requested_path = require_string_arg(args, "path");
     const auto content = require_string_arg(args, "content");
-    if (content.size() > max_write_chars) {
-        throw std::runtime_error(
-            "content is " + std::to_string(content.size())
-            + " characters, exceeding the maximum write size of "
-            + std::to_string(max_write_chars)
-            + "; write the file in smaller parts instead");
-    }
-    return write_workspace(root, path.lexically_relative(root), content);
+    auto request = authorizer->prepare_request(requested_path, content, invocation);
+    return std::make_unique<WorkspaceWriteInvocation>(authorizer, std::move(request));
 }
 
 nlohmann::json object_schema(nlohmann::json properties, nlohmann::json required = nlohmann::json::array())
@@ -193,9 +220,12 @@ nlohmann::json object_schema(nlohmann::json properties, nlohmann::json required 
 
 } // namespace
 
-void register_workspace_tools(ToolRegistry& registry, std::filesystem::path workspace_root)
+void register_workspace_tools(ToolRegistry& registry,
+                              std::filesystem::path workspace_root,
+                              std::shared_ptr<ApprovalProvider> approval_provider)
 {
     const auto root = canonical_workspace_root(workspace_root);
+    auto authorizer = std::make_shared<WorkspaceWriteAuthorizer>(root, std::move(approval_provider));
 
     registry.register_tool({
         "list_files",
@@ -237,8 +267,10 @@ void register_workspace_tools(ToolRegistry& registry, std::filesystem::path work
                 {"content", {{"type", "string"}, {"description", "Full content to write to the file."}}},
             },
             {"path", "content"}),
-        [root](nlohmann::json args) {
-            return write_file(root, args);
+        {},
+        [authorizer](nlohmann::json args, const ToolInvocationContext& invocation) {
+            return prepare_write_file(authorizer, std::move(args), invocation);
         },
+        true,
     });
 }

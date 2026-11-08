@@ -13,6 +13,7 @@
 #include "test_support.hpp"
 #include "tool_registry.hpp"
 #include "workspace_tools.hpp"
+#include "test_approval_provider.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -148,7 +149,7 @@ TEST(agent, tool_call_unique_arguments_fragmentes)
     tests::TempDir workspace("agent_tool_single");
     prepare_workspace(workspace.path());
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(
@@ -208,7 +209,7 @@ TEST(agent, tool_calls_multiples_index_entrelaces)
     tests::TempDir workspace("agent_tool_multi");
     prepare_workspace(workspace.path());
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(
@@ -263,7 +264,7 @@ TEST(agent, arguments_absents_normalises_en_objet_vide)
 {
     tests::TempDir workspace("agent_tool_noargs");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     // Aucun champ "arguments" dans le delta : les arguments reconstruits sont
@@ -294,7 +295,7 @@ TEST(agent, delta_tool_call_sans_index_ignore)
 {
     tests::TempDir workspace("agent_tool_noindex");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     // Delta sans "index" : non rattachable, donc ignoré. Aucun tool_call n'est
@@ -318,7 +319,7 @@ TEST(agent, outil_inconnu_retourne_tool_error)
 {
     tests::TempDir workspace("agent_unknown_tool");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(
@@ -343,7 +344,7 @@ TEST(agent, arguments_invalides_retourne_tool_error)
 {
     tests::TempDir workspace("agent_bad_args");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(
@@ -381,7 +382,7 @@ TEST(agent, tool_call_sans_id_ou_nom_est_refuse)
     // l'historique et n'exécute aucun outil.
     tests::TempDir workspace("agent_empty_fields");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(delta_tool_call(0, "", nlohmann::json::object()) + sse_done()));
@@ -426,7 +427,7 @@ TEST(agent, flux_sans_done_refuse_et_historique_preserve)
     // assistant complet (« correction annoncée » sans preuve d'exécution).
     tests::TempDir workspace("agent_no_done");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     // Deux fragments de texte, puis AUCUN "[DONE]" : le flux s'arrête.
@@ -469,7 +470,7 @@ TEST(agent, reponse_tronquee_par_limite_de_tokens_refusee)
     // tokens : le message est partiel et ne doit pas être accepté comme définitif.
     tests::TempDir workspace("agent_length");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     nlohmann::json event;
     event["choices"] = nlohmann::json::array(
@@ -497,7 +498,7 @@ TEST(agent, derniere_trame_sans_ligne_vide_est_traitee)
     // n'est pas suivi de "\n\n" : il doit tout de même être pris en compte.
     tests::TempDir workspace("agent_unterminated");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(delta_content("fini") + "data: [DONE]"));
@@ -513,7 +514,7 @@ TEST(agent, callback_tool_result_expose_le_verdict_d_execution)
     tests::TempDir workspace("agent_tool_outcome");
     prepare_workspace(workspace.path());
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(
@@ -544,7 +545,7 @@ TEST(agent, deltas_non_conformes_ignores)
 {
     tests::TempDir workspace("agent_odd_deltas");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     // choices vide, absence de "choices", content null, charge JSON invalide :
@@ -576,7 +577,7 @@ TEST(agent, historique_ordre_et_tours_complets)
 {
     tests::TempDir workspace("agent_history_order");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(text_stream("un")));
@@ -605,7 +606,7 @@ TEST(agent, historique_tronque_par_tours_complets)
 {
     tests::TempDir workspace("agent_history_trim");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     const int turns = 12;
     MockHttpServer server;
@@ -655,7 +656,7 @@ TEST(agent, echec_en_plein_flux_najoute_pas_de_message_assistant)
     // partiellement reconstruit n'est JAMAIS ajoute a l'historique.
     tests::TempDir workspace("agent_partial");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     MockHttpServer::Response broken;
@@ -703,7 +704,7 @@ TEST(agent, boucle_outils_limitee_a_cinq_iterations)
 {
     tests::TempDir workspace("agent_loop_cap");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     // Le serveur repond TOUJOURS un tool_call : la boucle doit s'arreter au cap.

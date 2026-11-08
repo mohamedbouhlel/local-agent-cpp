@@ -42,6 +42,10 @@ struct PresentationSnapshot {
     std::optional<RequestId> last_request_id;
     std::optional<ToolCallId> active_tool_call_id;
     std::string active_tool_name;
+    std::optional<ToolCallId> pending_authorization_tool_call_id;
+    std::string pending_authorization_tool_name;
+    std::optional<ToolCallId> approved_authorization_tool_call_id;
+    std::string approved_authorization_tool_name;
     std::uint64_t last_sequence = 0;
     std::uint64_t http_requests = 0;
     std::uint64_t tools_started = 0;

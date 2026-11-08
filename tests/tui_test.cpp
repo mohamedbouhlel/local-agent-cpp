@@ -13,7 +13,9 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <poll.h>
+#include <regex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -23,6 +25,119 @@ std::string sse_delta(std::string text)
 {
     nlohmann::json value{{"choices", nlohmann::json::array({{{"index", 0}, {"delta", {{"content", std::move(text)}}}}})}};
     return "data: " + value.dump() + "\n\n";
+}
+
+std::string sse_write_call(std::string id, std::string path, std::string content)
+{
+    const nlohmann::json call{{"index", 0}, {"id", std::move(id)}, {"type", "function"},
+        {"function", {{"name", "write_file"},
+                      {"arguments", nlohmann::json{{"path", std::move(path)}, {"content", std::move(content)}}.dump()}}}};
+    const nlohmann::json event{{"choices", nlohmann::json::array({{{"index", 0},
+        {"delta", {{"tool_calls", nlohmann::json::array({call})}}}}})}};
+    return "data: " + event.dump() + "\n\ndata: [DONE]\n\n";
+}
+
+struct TuiApprovalRun {
+    int status = 0;
+    bool exited = false;
+    bool dialog_seen = false;
+    std::string output;
+};
+
+std::string challenge_from_tui_output(const std::string& output)
+{
+    static const std::regex pattern(R"(Confirm: yes ([0-9a-f]{32}))");
+    std::smatch match;
+    return std::regex_search(output, match, pattern) ? match[1].str() : std::string{};
+}
+
+TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
+                                      const std::filesystem::path& working_directory,
+                                      std::string_view decision,
+                                      bool close_while_pending,
+    bool compact_terminal = false,
+    std::string_view prebuffered_key = {})
+{
+    TuiApprovalRun result;
+    int master = -1;
+    winsize size{}; size.ws_row = 24; size.ws_col = 80;
+    const pid_t child = ::forkpty(&master, nullptr, nullptr, &size);
+    if (child < 0) return result;
+    if (child == 0) {
+        (void)::chdir(working_directory.c_str());
+        const auto executable = std::filesystem::read_symlink("/proc/self/exe").parent_path() / "tui_pty_driver";
+        ::setenv("TERM", "xterm-256color", 1);
+        ::setenv("LC_ALL", "C.UTF-8", 1);
+        ::execl(executable.c_str(), executable.c_str(), server.url("/v1/chat/completions").c_str(), "normal", nullptr);
+        _exit(127);
+    }
+
+    auto read_for = [&] (std::chrono::milliseconds duration) {
+        const auto deadline = std::chrono::steady_clock::now() + duration;
+        while (std::chrono::steady_clock::now() < deadline) {
+            pollfd descriptor{master, POLLIN, 0};
+            if (::poll(&descriptor, 1, 20) > 0 && (descriptor.revents & POLLIN)) {
+                char bytes[4096];
+                const auto count = ::read(master, bytes, sizeof(bytes));
+                if (count > 0) result.output.append(bytes, static_cast<std::size_t>(count));
+            }
+        }
+    };
+    auto write = [master](std::string_view bytes) {
+        static_cast<void>(::write(master, bytes.data(), bytes.size()));
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    };
+
+    read_for(std::chrono::milliseconds(200));
+    write("create file");
+    if (prebuffered_key.empty()) write("\033[20~"); // F9
+    else write(std::string("\033[20~") + std::string(prebuffered_key));
+    const auto dialog_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+    while (std::chrono::steady_clock::now() < dialog_deadline
+           && result.output.find("WRITE APPROVAL") == std::string::npos) {
+        read_for(std::chrono::milliseconds(30));
+    }
+    result.dialog_seen = result.output.find("WRITE APPROVAL") != std::string::npos;
+    if (result.dialog_seen) {
+        if (compact_terminal) {
+            size.ws_row = 4; size.ws_col = 10;
+            (void)::ioctl(master, TIOCSWINSZ, &size);
+            (void)::kill(child, SIGWINCH);
+            read_for(std::chrono::milliseconds(120));
+        }
+        if (close_while_pending) write("\033[21~"); // F10 cancels pending approval and closes
+        else if (decision == "approve") {
+            const auto challenge = challenge_from_tui_output(result.output);
+            if (!challenge.empty()) write(approval_confirmation(challenge) + "\n");
+        } else if (decision == "wrong") {
+            auto challenge = challenge_from_tui_output(result.output);
+            if (!challenge.empty()) {
+                challenge[0] = challenge[0] == '0' ? '1' : '0';
+                write(approval_confirmation(challenge) + "\n");
+            }
+        } else if (decision == "y") write("y\n");
+        else write(decision);
+    }
+
+    const auto exit_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(6);
+    while (std::chrono::steady_clock::now() < exit_deadline) {
+        read_for(std::chrono::milliseconds(30));
+        if (::waitpid(child, &result.status, WNOHANG) == child) { result.exited = true; break; }
+        if (close_while_pending && server.received_bodies().size() >= 2) {
+            // F10 already requested exit; wait for the agent to report the cancellation.
+            continue;
+        }
+        if (!close_while_pending && server.received_bodies().size() >= 2) {
+            write("\033[21~");
+            close_while_pending = true; // only one close key is sent
+        }
+    }
+    if (!result.exited) {
+        static_cast<void>(::kill(child, SIGKILL));
+        (void)::waitpid(child, &result.status, 0);
+    }
+    (void)::close(master);
+    return result;
 }
 }
 
@@ -310,4 +425,143 @@ TEST(tui3, http_failure_is_rendered_as_failure_in_pty)
     (void)::waitpid(child, &status, 0);
     ::close(master);
     CHECK(false);
+}
+
+TEST(tui3, write_approval_dialog_creates_only_after_explicit_y)
+{
+    tests::TempDir working_directory("tui_write_approved");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-yes", "nested/approved.txt", "approved body");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("done") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "approve", false);
+    CHECK(run.exited);
+    CHECK(WIFEXITED(run.status));
+    CHECK_EQ(WEXITSTATUS(run.status), 0);
+    CHECK(run.dialog_seen);
+    CHECK(run.output.find("approved body") != std::string::npos);
+    const auto file = working_directory.path() / "workspace/nested/approved.txt";
+    CHECK(std::filesystem::exists(file));
+    if (std::filesystem::exists(file)) {
+        std::ifstream in(file, std::ios::binary);
+        CHECK_EQ(std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()),
+                 std::string("approved body"));
+    }
+    const auto requests = server.received_bodies();
+    CHECK_EQ(requests.size(), std::size_t(2));
+}
+
+TEST(tui3, closing_during_write_approval_cancels_without_creating_parent)
+{
+    tests::TempDir working_directory("tui_write_cancelled");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-close", "nested/cancelled.txt", "must not exist");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("continued after cancellation") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), {}, true);
+    CHECK(run.exited);
+    CHECK(WIFEXITED(run.status));
+    CHECK_EQ(WEXITSTATUS(run.status), 0);
+    CHECK(run.dialog_seen);
+    CHECK(run.output.find("no file was created") != std::string::npos);
+    CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
+    const auto requests = server.received_bodies();
+    CHECK_EQ(requests.size(), std::size_t(2));
+    if (requests.size() == 2) {
+        const auto second = nlohmann::json::parse(requests[1]);
+        bool found_cancelled = false;
+        for (const auto& message : second.at("messages")) {
+            if (message.value("role", "") == "tool") {
+                found_cancelled = message.value("content", "").find("cancelled") != std::string::npos;
+            }
+        }
+        CHECK(found_cancelled);
+    }
+}
+
+TEST(tui3, single_y_and_prebuffered_y_do_not_approve_write)
+{
+    for (const bool prebuffer : {false, true}) {
+        tests::TempDir working_directory("tui_write_stale_key");
+        MockHttpServer server;
+        MockHttpServer::Response call;
+        call.body = sse_write_call("call-pty-stale-y", "nested/stale.txt", "must not be written");
+        server.enqueue(std::move(call));
+        MockHttpServer::Response answer;
+        answer.body = sse_delta("write refused") + "data: [DONE]\n\n";
+        server.enqueue(std::move(answer));
+
+        const auto run = run_tui_write_decision(server, working_directory.path(), "y", false, false,
+                                                prebuffer ? "y" : std::string_view{});
+        CHECK(run.exited);
+        CHECK(run.dialog_seen);
+        CHECK(challenge_from_tui_output(run.output).size() == 32);
+        CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
+        CHECK_EQ(server.received_bodies().size(), std::size_t(2));
+    }
+}
+
+TEST(tui3, incorrect_current_challenge_does_not_create_file)
+{
+    tests::TempDir working_directory("tui_write_wrong_challenge");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-wrong-challenge", "nested/wrong.txt", "must not be written");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("write refused") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "wrong", false);
+    CHECK(run.exited);
+    CHECK(run.dialog_seen);
+    CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
+    CHECK_EQ(server.received_bodies().size(), std::size_t(2));
+}
+
+TEST(tui3, compact_terminal_cannot_approve_uninspectable_write_content)
+{
+    tests::TempDir working_directory("tui_write_compact");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-small", "nested/uninspectable.txt", "content requiring inspection");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("continued without write") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "y", false, true);
+    CHECK(run.exited);
+    CHECK(WIFEXITED(run.status));
+    CHECK_EQ(WEXITSTATUS(run.status), 0);
+    CHECK(run.dialog_seen);
+    CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
+    const auto requests = server.received_bodies();
+    CHECK_EQ(requests.size(), std::size_t(2));
+    if (requests.size() == 2) {
+        const auto second = nlohmann::json::parse(requests[1]);
+        bool found_unavailable = false;
+        for (const auto& message : second.at("messages")) {
+            if (message.value("role", "") == "tool") {
+                found_unavailable = message.value("content", "").find("unavailable") != std::string::npos;
+            }
+        }
+        CHECK(found_unavailable);
+    }
+}
+
+TEST(tui3, approval_challenge_requires_visible_width_for_full_confirmation)
+{
+    CHECK(!agent::ui::TuiView::approval_inspectable(24, 47));
+    CHECK(agent::ui::TuiView::approval_inspectable(24, 48));
+    CHECK(!agent::ui::TuiView::approval_inspectable(5, 80));
+    CHECK(agent::ui::TuiView::approval_inspectable(6, 48));
 }

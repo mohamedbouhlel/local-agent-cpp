@@ -36,6 +36,19 @@ void PresentationController::on_event(const AgentEvent& event)
         turn_had_text_ = true;
         renderer_->render_text(std::get<TextDelta>(event.payload).text);
         break;
+    case EventType::ToolAuthorizationRequested:
+        renderer_->render_status(StatusKind::warning, "Waiting for explicit approval to create a workspace file.");
+        break;
+    case EventType::ToolAuthorizationResolved: {
+        const auto status = std::get<ToolAuthorizationResolved>(event.payload).status;
+        const char* message = status == ToolAuthorizationStatus::approved ? "File creation approved; execution is starting."
+            : status == ToolAuthorizationStatus::denied ? "File creation refused; no file was created."
+            : status == ToolAuthorizationStatus::cancelled ? "File creation cancelled; no file was created."
+            : status == ToolAuthorizationStatus::expired ? "File approval expired; no file was created."
+            : "File approval unavailable; no file was created.";
+        renderer_->render_status(status == ToolAuthorizationStatus::approved ? StatusKind::info : StatusKind::warning, message);
+        break;
+    }
     case EventType::ToolStarted: {
         const auto& payload = std::get<ToolStarted>(event.payload);
         renderer_->render_status(StatusKind::tool, "Running tool: " + payload.name);

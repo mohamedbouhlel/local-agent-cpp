@@ -111,6 +111,8 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-07-tui-4b1-bounded-panel-history.md](reports/2026-11-07-tui-4b1-bounded-panel-history.md) | TUI-4B.1 — rétention FIFO bornée, comptée en octets UTF-8 neutralisés, pour les historiques Outils et Diagnostics |
 | [2026-11-07-tui-4b1-final-review.md](reports/2026-11-07-tui-4b1-final-review.md) | TUI-4B.1 — revue contradictoire, correction du dépassement transitoire de la collection et validation complète |
 | [2026-11-08-tui-retention-partial-indicator.md](reports/2026-11-08-tui-retention-partial-indicator.md) | Correctif de scroll et indicateur persistant après éviction FIFO, postérieur à la fusion de la PR #32 |
+| [2026-11-08-write-approval-implementation.md](reports/2026-11-08-write-approval-implementation.md) | Autorisation explicite par création `write_file`, intégration CLI/TUI, tests et limites avant revue |
+| [2026-11-08-write-approval-fresh-challenge-review.md](reports/2026-11-08-write-approval-fresh-challenge-review.md) | Revue du consentement anticipé CLI/TUI, défi par demande et résultats de validation |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

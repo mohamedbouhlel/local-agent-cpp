@@ -65,6 +65,40 @@ std::vector<std::string> wrap(std::string_view text,
     return result;
 }
 
+std::vector<std::string> wrap_inspection(std::string_view text, int columns)
+{
+    const int width = std::max(1, columns);
+    std::vector<std::string> rows;
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const auto end = text.find('\n', start);
+        const auto line_end = end == std::string_view::npos ? text.size() : end;
+        if (line_end == start) rows.emplace_back();
+        for (std::size_t p = start; p < line_end;) {
+            const auto count = std::min<std::size_t>(static_cast<std::size_t>(width), line_end - p);
+            rows.emplace_back(text.substr(p, count));
+            p += count;
+        }
+        if (end == std::string_view::npos) break;
+        start = end + 1;
+    }
+    return rows;
+}
+
+std::vector<std::string> approval_rows(const WriteApprovalRequest& request, int columns)
+{
+    std::string source = "Workspace: " + escape_write_content_for_inspection(request.workspace_root.string()) + "\n";
+    source += "Target: " + escape_write_content_for_inspection(request.relative_path.generic_string()) + "\n";
+    source += "Operation: create new file\nSize: " + std::to_string(request.content_bytes) + " bytes\n";
+    source += "Parents to create:";
+    if (request.missing_parent_directories.empty()) source += " none";
+    for (const auto& parent : request.missing_parent_directories)
+        source += " " + escape_write_content_for_inspection(parent.generic_string());
+    source += "\nContent (ASCII escaped; line breaks shown as \\n):\n";
+    source += escape_write_content_for_inspection(request.content);
+    return wrap_inspection(source, std::max(1, columns - 2));
+}
+
 std::string retention_warning(std::uint64_t count, std::string_view singular,
                               std::string_view plural, std::string_view singular_suffix,
                               std::string_view plural_suffix)
@@ -417,6 +451,49 @@ void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation
         (void)mvwaddstr(window, rows - 1, 0, all[line_index].c_str());
         (void)wmove(window, rows - 1, std::min(cols - 1, width_of(prefix_lines.back())));
     }
+    (void)wnoutrefresh(window);
+    (void)doupdate();
+}
+
+bool TuiView::approval_inspectable(int rows, int columns) noexcept
+{
+    // The full challenge and the complete typed response must remain visible.
+    return rows >= 6 && columns >= 48;
+}
+
+std::size_t TuiView::approval_content_rows(int columns, const WriteApprovalRequest& request) const
+{
+    return approval_rows(request, std::max(1, columns)).size();
+}
+
+void TuiView::draw_approval(WINDOW* window, const WriteApprovalRequest& request, std::size_t scroll_offset,
+                            std::string_view challenge, std::string_view confirmation_input)
+{
+    int rows = 0, cols = 0;
+    getmaxyx(window, rows, cols);
+    if (rows <= 0 || cols <= 0) return;
+    werase(window);
+    (void)mvwaddnstr(window, 0, 0, "WRITE APPROVAL | arrows | Enter | F10", std::max(0, cols));
+    if (!approval_inspectable(rows, cols)) {
+        if (rows > 2) (void)mvwaddnstr(window, 2, 0, "Too small: write approval unavailable.", std::max(0, cols));
+        if (rows > 3) (void)mvwaddnstr(window, rows - 1, 0, "Resize / F10 cancel", std::max(0, cols));
+        (void)wnoutrefresh(window);
+        (void)doupdate();
+        return;
+    }
+
+    const auto content = approval_rows(request, cols);
+    const auto available = static_cast<std::size_t>(std::max(0, rows - 3));
+    const auto max_scroll = content.size() > available ? content.size() - available : 0;
+    const auto first = std::min(scroll_offset, max_scroll);
+    const auto last = std::min(content.size(), first + available);
+    for (std::size_t i = first; i < last; ++i) {
+        (void)mvwaddnstr(window, 1 + static_cast<int>(i - first), 0, content[i].c_str(), std::max(0, cols));
+    }
+    const auto challenge_line = "Confirm: " + approval_confirmation(challenge);
+    (void)mvwaddnstr(window, rows - 2, 0, challenge_line.c_str(), std::max(0, cols));
+    const auto input_line = "Input: " + std::string(confirmation_input);
+    (void)mvwaddnstr(window, rows - 1, 0, input_line.c_str(), std::max(0, cols));
     (void)wnoutrefresh(window);
     (void)doupdate();
 }

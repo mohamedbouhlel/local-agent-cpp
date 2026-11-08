@@ -1,7 +1,20 @@
 #include "prompt_reader.hpp"
 
+#include <cerrno>
+#include <unistd.h>
 #include <utility>
 #include <vector>
+
+FdInputStreamBuffer::int_type FdInputStreamBuffer::underflow()
+{
+    if (gptr() != nullptr && gptr() < egptr()) return traits_type::to_int_type(*gptr());
+    if (fd_ < 0) return traits_type::eof();
+    ssize_t count = 0;
+    do { count = ::read(fd_, &current_, 1); } while (count < 0 && errno == EINTR);
+    if (count != 1) return traits_type::eof();
+    setg(&current_, &current_, &current_ + 1);
+    return traits_type::to_int_type(current_);
+}
 
 namespace {
 

@@ -10,6 +10,7 @@
 #include "test_support.hpp"
 #include "tool_registry.hpp"
 #include "workspace_tools.hpp"
+#include "test_approval_provider.hpp"
 #include "workspace_write.hpp"
 #include "../src/workspace_write_internal.hpp"
 
@@ -42,7 +43,7 @@ private:
 ToolRegistry make_registry(const std::filesystem::path& root)
 {
     ToolRegistry registry;
-    register_workspace_tools(registry, root);
+    register_workspace_tools(registry, root, test_approval_provider());
     return registry;
 }
 
@@ -153,8 +154,8 @@ TEST(workspace, registre_double_enregistrement_rejete)
 {
     tests::TempDir workspace("registry_duplicate");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
-    CHECK_THROWS_MSG(register_workspace_tools(registry, workspace.path()), "tool already registered");
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
+    CHECK_THROWS_MSG(register_workspace_tools(registry, workspace.path(), test_approval_provider()), "tool already registered");
 }
 
 // ---------------------------------------------------------------------------
@@ -337,9 +338,10 @@ TEST(workspace, chemin_avec_double_point)
 TEST(workspace, ecriture_directe_refuse_chemins_invalides)
 {
     tests::TempDir workspace("direct_write_paths");
-    CHECK_THROWS_MSG(write_workspace(workspace.path(), "../outside.txt", "x"), "must not contain");
-    CHECK_THROWS_MSG(write_workspace(workspace.path(), workspace.path() / "absolute.txt", "x"), "invalid workspace path");
-    CHECK_THROWS_MSG(write_workspace(workspace.path(), std::filesystem::path(std::string("a\0b", 3)), "x"), "invalid workspace path");
+    WorkspaceWriteAuthorizer authorizer(workspace.path(), test_approval_provider());
+    CHECK_THROWS_MSG(authorizer.prepare_request("../outside.txt", "x", {}), "must not contain");
+    CHECK_THROWS_MSG(authorizer.prepare_request((workspace.path() / "absolute.txt").string(), "x", {}), "absolute");
+    CHECK_THROWS_MSG(authorizer.prepare_request(std::string("a\0b", 3), "x", {}), "NUL");
     auto registry = make_registry(workspace.path());
     CHECK_THROWS_MSG(call(registry, "read_file", R"({"path":"a\u0000b"})"), "must not contain NUL");
 }

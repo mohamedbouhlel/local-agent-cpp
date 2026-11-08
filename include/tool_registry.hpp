@@ -11,6 +11,10 @@ class ToolRegistry {
 public:
     void register_tool(Tool tool);
     std::string execute(const std::string& name, const std::string& args_json) const;
+    std::unique_ptr<ToolInvocation> prepare_execution(const std::string& name,
+                                                      const std::string& args_json,
+                                                      const ToolInvocationContext& context) const;
+    bool requires_approval(const std::string& name) const;
     nlohmann::json schemas_json() const;
     bool empty() const;
 

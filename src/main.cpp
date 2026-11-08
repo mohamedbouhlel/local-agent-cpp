@@ -8,6 +8,7 @@
 #include "ui/presentation_controller.hpp"
 #include "ui/terminal_capabilities.hpp"
 #include "ui/tui_application.hpp"
+#include "ui/tui_approval_broker.hpp"
 #include "ui/ui_options.hpp"
 #include "workspace_tools.hpp"
 
@@ -18,6 +19,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <unistd.h>
 
 namespace {
 
@@ -67,11 +69,19 @@ int main(int argc, char** argv)
         return 2;
     }
     auto config = load_config();
+    std::shared_ptr<agent::ui::TuiApprovalBroker> tui_approvals;
+    std::shared_ptr<ApprovalProvider> approval_provider;
+    if (interface_mode == agent::ui::InterfaceMode::tui) {
+        tui_approvals = std::make_shared<agent::ui::TuiApprovalBroker>();
+        approval_provider = tui_approvals;
+    } else {
+        approval_provider = std::make_shared<ConsoleWriteApprovalProvider>();
+    }
     auto tools = std::make_shared<ToolRegistry>();
     std::filesystem::path workspace_root;
     try {
         workspace_root = prepare_workspace_root(std::filesystem::absolute("workspace"));
-        register_workspace_tools(*tools, workspace_root);
+        register_workspace_tools(*tools, workspace_root, approval_provider);
     } catch (const std::exception& error) {
         std::cerr << "Filesystem sandbox setup failed: " << error.what() << '\n';
         return 1;
@@ -79,7 +89,7 @@ int main(int argc, char** argv)
 
     if (interface_mode == agent::ui::InterfaceMode::tui) {
         try {
-            return agent::ui::TuiApplication(config, tools, [workspace_root] {
+            return agent::ui::TuiApplication(config, tools, tui_approvals, [workspace_root] {
                 apply_filesystem_sandbox(workspace_root);
             }).run();
         } catch (const std::exception& error) {
@@ -102,7 +112,9 @@ int main(int argc, char** argv)
 
     std::cout << "agent-cpp ready. Type 'exit' to quit.\n";
 
-    PromptReader reader(std::cin, std::cout);
+    FdInputStreamBuffer stdin_buffer(STDIN_FILENO);
+    std::istream input(&stdin_buffer);
+    PromptReader reader(input, std::cout);
     while (true) {
         const auto prompt = reader.read();
 

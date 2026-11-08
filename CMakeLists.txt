@@ -26,6 +26,7 @@ add_library(agent_core STATIC
   src/prompt_reader.cpp
   src/sse_parser.cpp
   src/tool_registry.cpp
+  src/workspace_write_authorization.cpp
   src/ui/console_renderer.cpp
   src/ui/console_session.cpp
   src/ui/presentation_controller.cpp
@@ -49,6 +50,7 @@ add_library(agent_tui STATIC
   src/ui/tui_event_loop.cpp
   src/ui/tui_application.cpp
   src/ui/tui_navigation.cpp
+  src/ui/tui_approval_broker.cpp
   src/ui/tui_view_data.cpp
 )
 target_include_directories(agent_tui PUBLIC include ${CURSES_INCLUDE_DIRS})

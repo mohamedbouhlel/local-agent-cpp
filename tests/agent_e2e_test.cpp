@@ -19,6 +19,8 @@
 #include "test_support.hpp"
 #include "tool_registry.hpp"
 #include "workspace_tools.hpp"
+#include "test_approval_provider.hpp"
+#include "ui/agent_event.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -120,6 +122,28 @@ const nlohmann::json* first_with_role(const nlohmann::json& messages, const std:
     return nullptr;
 }
 
+class DenyWriteApproval final : public ApprovalProvider {
+public:
+    ApprovalDecision request(std::shared_ptr<const WriteApprovalRequest> request) override
+    {
+        ++calls;
+        last_request = std::move(request);
+        return ApprovalDecision::denied;
+    }
+    void cancel_pending() noexcept override { cancelled = true; }
+    unsigned calls = 0;
+    bool cancelled = false;
+    std::shared_ptr<const WriteApprovalRequest> last_request;
+};
+
+class EventRecorder final : public agent::ui::EventObserver {
+public:
+    void on_event(const agent::ui::AgentEvent& event) override { events.push_back(event); }
+    void on_observer_failure() override { ++failures; }
+    std::vector<agent::ui::AgentEvent> events;
+    unsigned failures = 0;
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -130,7 +154,7 @@ TEST(agent, texte_fragmente_livraison_progressive)
 {
     tests::TempDir workspace("e2e_text_stream");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     const std::vector<std::string> fragments = {"Bon", "jour", ", ", "monde", " !"};
 
@@ -185,7 +209,7 @@ TEST(agent, tool_call_fragmente_bout_en_bout)
     tests::TempDir workspace("e2e_tool_call");
     prepare_workspace(workspace.path());
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(
@@ -260,7 +284,7 @@ TEST(agent, write_file_verifie_l_etat_reel_du_fichier)
     // sur l'état réel du workspace après exécution.
     tests::TempDir workspace("e2e_write_state");
     ToolRegistry registry;
-    register_workspace_tools(registry, workspace.path());
+    register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
     server.enqueue(stream_response(
@@ -287,4 +311,66 @@ TEST(agent, write_file_verifie_l_etat_reel_du_fichier)
     CHECK(file.good());
     const std::string on_disk((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     CHECK_EQ(on_disk, std::string("bonjour monde"));
+}
+
+TEST(agent, refus_write_file_est_transmis_au_modele_sans_creer_de_fichier)
+{
+    tests::TempDir workspace("e2e_write_denied");
+    auto approval = std::make_shared<DenyWriteApproval>();
+    ToolRegistry registry;
+    register_workspace_tools(registry, workspace.path(), approval);
+    auto observer = std::make_shared<EventRecorder>();
+
+    MockHttpServer server;
+    server.enqueue(stream_response(
+        delta_tool_call(0, "call_denied", {{"name", "write_file"}, {"arguments", ""}})
+        + delta_tool_call(0, "", {{"arguments", R"({"path":"new/secret.txt","content":"private"})"}})
+        + sse_done()));
+    server.enqueue(stream_response(text_stream("je poursuis sans ecriture")));
+
+    Agent agent(registry, config_for(server), observer);
+    unsigned legacy_results = 0;
+    AgentCallbacks callbacks;
+    callbacks.on_tool_result = [&legacy_results](const ToolOutcome&) { ++legacy_results; };
+    CHECK_EQ(agent.send("cree un fichier", callbacks), std::string("je poursuis sans ecriture"));
+    CHECK_EQ(approval->calls, 1u);
+    CHECK(approval->last_request != nullptr);
+    CHECK_EQ(approval->last_request->invocation.tool_call_id, std::string("call_denied"));
+    CHECK(!std::filesystem::exists(workspace.path() / "new"));
+    CHECK_EQ(legacy_results, 0u);
+    CHECK_EQ(observer->failures, 0u);
+    unsigned auth_requested = 0;
+    unsigned auth_denied = 0;
+    unsigned tool_started = 0;
+    for (const auto& event : observer->events) {
+        if (event.type() == agent::ui::EventType::ToolAuthorizationRequested) {
+            ++auth_requested;
+            CHECK(event.metadata.tool_call_id.has_value());
+            CHECK_EQ(event.metadata.tool_call_id->value, std::string("call_denied"));
+            CHECK_EQ(std::get<agent::ui::ToolAuthorizationRequested>(event.payload).name,
+                     std::string("write_file"));
+        } else if (event.type() == agent::ui::EventType::ToolAuthorizationResolved) {
+            ++auth_denied;
+            CHECK(std::get<agent::ui::ToolAuthorizationResolved>(event.payload).status
+                  == agent::ui::ToolAuthorizationStatus::denied);
+        } else if (event.type() == agent::ui::EventType::ToolStarted) {
+            ++tool_started;
+        }
+    }
+    CHECK_EQ(auth_requested, 1u);
+    CHECK_EQ(auth_denied, 1u);
+    CHECK_EQ(tool_started, 0u);
+
+    const auto bodies = server.received_bodies();
+    CHECK_EQ(bodies.size(), std::size_t(2));
+    if (bodies.size() == 2) {
+        const auto second = nlohmann::json::parse(bodies[1]);
+        const auto* tool = first_with_role(second.at("messages"), "tool");
+        CHECK(tool != nullptr);
+        if (tool != nullptr) {
+            CHECK_EQ(tool->at("tool_call_id").get<std::string>(), std::string("call_denied"));
+            CHECK_EQ(tool->at("content").get<std::string>(),
+                     std::string("write authorization denied; no file was created"));
+        }
+    }
 }

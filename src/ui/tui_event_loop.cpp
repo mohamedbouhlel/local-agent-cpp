@@ -236,6 +236,11 @@ void TuiEventLoop::handle_event(const AgentEvent& event)
 bool TuiEventLoop::collect_completion()
 {
     if (!active_turn_ || active_turn_->wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) return false;
+    // A ready future means the worker has finished publishing for this turn.
+    // Drain once more before consuming completion so close cannot leave
+    // already-published terminal/tool events unrendered.
+    (void)drain_events();
+    (void)sync_approval_dialog();
     auto result = active_turn_->get();
     active_turn_.reset();
     event_details_incomplete_ = event_details_incomplete_ || result.event_details_incomplete();

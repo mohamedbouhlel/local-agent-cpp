@@ -68,11 +68,13 @@ public:
         return contents_;
     }
 
-    bool wait_for(const std::string& text)
+    bool wait_for_challenge(const std::string& marker, std::size_t challenge_size)
     {
         std::unique_lock lock(mutex_);
         return changed_.wait_for(lock, std::chrono::seconds(2), [&] {
-            return contents_.find(text) != std::string::npos;
+            const auto start = contents_.find(marker);
+            return start != std::string::npos
+                && contents_.size() >= start + marker.size() + challenge_size;
         });
     }
 
@@ -107,7 +109,7 @@ private:
 std::string challenge_from(PromptSignalBuffer& output)
 {
     constexpr std::string_view marker = "Confirmation: type exactly 'yes ";
-    if (!output.wait_for(std::string(marker))) return {};
+    if (!output.wait_for_challenge(std::string(marker), 32)) return {};
     const auto contents = output.contents();
     const auto start = contents.find(marker);
     if (start == std::string::npos) return {};
@@ -419,11 +421,11 @@ TEST(workspace, cli_late_confirmation_after_expiration_creates_nothing)
     WorkspaceWriteAuthorizer authorizer(workspace.path(), provider);
     auto request = std::make_shared<WriteApprovalRequest>(
         *authorizer.prepare_request("late/file.txt", "must not exist", {}));
-    request->expires_at = std::chrono::steady_clock::now() + 40ms;
+    request->expires_at = std::chrono::steady_clock::now() + 5s;
     auto pending = std::async(std::launch::async, [&] { return authorizer.authorize(request); });
     const auto challenge = challenge_from(output_buffer);
     CHECK_EQ(challenge.size(), std::size_t(32));
-    CHECK(pending.wait_for(250ms) == std::future_status::ready);
+    CHECK(pending.wait_for(6s) == std::future_status::ready);
     auto result = pending.get();
     CHECK(std::holds_alternative<ApprovalDecision>(result));
     CHECK(std::get<ApprovalDecision>(result) == ApprovalDecision::expired);
@@ -482,11 +484,15 @@ TEST(tui2, approval_broker_accepts_only_current_request_and_close_wakes_waiter)
     request->approval_id = 42;
     request->expires_at = std::chrono::steady_clock::now() + 2s;
     auto waiting = std::async(std::launch::async, [&] { return broker.request(request); });
-    std::shared_ptr<const WriteApprovalRequest> pending;
-    for (int i = 0; i < 200 && !pending; ++i) {
-        pending = broker.pending_request();
-        if (!pending) std::this_thread::yield();
-    }
+    const auto wait_until_pending = [](agent::ui::TuiApprovalBroker& target) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (auto pending = target.pending_request()) return pending;
+            std::this_thread::sleep_for(1ms);
+        }
+        return std::shared_ptr<const WriteApprovalRequest>{};
+    };
+    auto pending = wait_until_pending(broker);
     CHECK(pending != nullptr);
     CHECK(!broker.resolve(41, ApprovalDecision::approved));
     CHECK(broker.resolve(42, ApprovalDecision::approved));
@@ -498,7 +504,8 @@ TEST(tui2, approval_broker_accepts_only_current_request_and_close_wakes_waiter)
     second->approval_id = 43;
     second->expires_at = std::chrono::steady_clock::now() + 2s;
     auto blocked = std::async(std::launch::async, [&] { return closing.request(second); });
-    for (int i = 0; i < 200 && !closing.pending_request(); ++i) std::this_thread::yield();
+    const auto closing_pending = wait_until_pending(closing);
+    CHECK(closing_pending != nullptr);
     closing.cancel_pending();
     CHECK(blocked.wait_for(1s) == std::future_status::ready);
     CHECK(blocked.get() == ApprovalDecision::cancelled);

@@ -114,6 +114,7 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-08-write-approval-implementation.md](reports/2026-11-08-write-approval-implementation.md) | Autorisation explicite par création `write_file`, intégration CLI/TUI, tests et limites avant revue |
 | [2026-11-08-write-approval-fresh-challenge-review.md](reports/2026-11-08-write-approval-fresh-challenge-review.md) | Revue du consentement anticipé CLI/TUI, défi par demande et résultats de validation |
 | [2026-11-08-v1-proto-001-malformed-sse-fix.md](reports/2026-11-08-v1-proto-001-malformed-sse-fix.md) | Correctif V1-PROTO-001 : trame JSON SSE malformée rejetée, tests de régression CLI/TUI et résultats de validation |
+| [2026-11-08-tui-final-event-drain-on-close.md](reports/2026-11-08-tui-final-event-drain-on-close.md) | Correction de la notification d'approbation perdue lors de la fermeture TUI |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

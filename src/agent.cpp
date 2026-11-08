@@ -286,6 +286,7 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
             SseParser parser;
             StreamingMessageAccumulator accumulator;
             bool saw_done = false;
+            bool malformed_event = false;
             std::string finish_reason;
             const auto request_body = payload.dump();
             const RequestId request_id{next_request_id_++};
@@ -304,11 +305,18 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
             };
 
             // Consomme un payload SSE déjà délimité.
-            auto consume = [&accumulator, &on_text_delta, &finish_reason, &saw_done](const std::string& data) {
+            auto consume = [&accumulator, &on_text_delta, &finish_reason, &saw_done, &malformed_event](
+                              const std::string& data) {
                 // "[DONE]" n'a pas de sens pour le parser SSE : on le reconnaît ici,
                 // côté OpenAI, et il constitue la preuve de complétude du flux.
                 if (data == "[DONE]") {
                     saw_done = true;
+                    return;
+                }
+                // Dès qu'une trame est invalide, ne plus exposer ni accumuler les
+                // suivantes. Le diagnostic générique est émis après le retour du
+                // transport, sans inclure le contenu brut potentiellement sensible.
+                if (malformed_event) {
                     return;
                 }
 
@@ -316,8 +324,7 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
                 try {
                     event = nlohmann::json::parse(data);
                 } catch (const nlohmann::json::exception&) {
-                    // Fragment SSE isolé malformé : ignoré sans interrompre le
-                    // reste du flux.
+                    malformed_event = true;
                     return;
                 }
 
@@ -376,6 +383,9 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
                 consume(data);
             }
 
+            if (malformed_event) {
+                throw AgentError("malformed JSON in model stream event");
+            }
             if (!saw_done) {
                 throw AgentError("incomplete model stream: missing [DONE] marker");
             }

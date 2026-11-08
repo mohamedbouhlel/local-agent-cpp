@@ -541,21 +541,20 @@ TEST(agent, callback_tool_result_expose_le_verdict_d_execution)
     CHECK(outcomes[1].result.find("tool error:") == 0);
 }
 
-TEST(agent, deltas_non_conformes_ignores)
+TEST(agent, deltas_json_valides_non_conformes_ignores)
 {
     tests::TempDir workspace("agent_odd_deltas");
     ToolRegistry registry;
     register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
-    // choices vide, absence de "choices", content null, charge JSON invalide :
-    // tous doivent être ignorés sans interrompre le flux.
+    // choices vide, absence de "choices" et content null sont des charges JSON
+    // syntaxiquement valides mais sans delta exploitable : elles sont ignorées.
     server.enqueue(stream_response(
         sse(nlohmann::json{{"choices", nlohmann::json::array()}})
         + sse(nlohmann::json{{"id", "chunk-sans-choices"}})
         + sse(nlohmann::json{{"choices", nlohmann::json::array(
               {nlohmann::json{{"index", 0}, {"delta", {{"content", nullptr}}}}})}})
-        + "data: {json invalide\n\n"
         + delta_content("ok")
         + sse_done()));
 

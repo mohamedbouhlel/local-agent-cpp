@@ -421,6 +421,8 @@ TEST(workspace, cli_late_confirmation_after_expiration_creates_nothing)
     WorkspaceWriteAuthorizer authorizer(workspace.path(), provider);
     auto request = std::make_shared<WriteApprovalRequest>(
         *authorizer.prepare_request("late/file.txt", "must not exist", {}));
+    // Laisser au worker le temps d'entrer dans le provider et d'émettre le défi;
+    // challenge_from attend ce signal avant que le test n'envoie la réponse tardive.
     request->expires_at = std::chrono::steady_clock::now() + 5s;
     auto pending = std::async(std::launch::async, [&] { return authorizer.authorize(request); });
     const auto challenge = challenge_from(output_buffer);

@@ -35,7 +35,7 @@ int TuiEventLoop::run()
         }
         if (changed || dirty_) {
             if (approval_request_) view_.draw_approval(window, *approval_request_, approval_scroll_,
-                                                       approval_challenge_, approval_confirmation_input_);
+                                                       approval_challenge_, approval_confirmation_input_, approval_expired_);
             else view_.draw(window, terminal_.unicode_enabled(), navigation_, input_, cursor_byte_);
             dirty_ = false;
         }
@@ -45,7 +45,7 @@ int TuiEventLoop::run()
             dirty_ = true;
             if (closing_ && active_turn_) {
                 if (approval_request_) view_.draw_approval(window, *approval_request_, approval_scroll_,
-                                                           approval_challenge_, approval_confirmation_input_);
+                                                           approval_challenge_, approval_confirmation_input_, approval_expired_);
                 else view_.draw(window, terminal_.unicode_enabled(), navigation_, input_, cursor_byte_);
                 dirty_ = false;
             }
@@ -76,13 +76,21 @@ bool TuiEventLoop::sync_approval_dialog()
         approval_challenge_ = std::move(challenge);
         approval_confirmation_input_.clear();
         approval_scroll_ = 0;
+        approval_expired_ = false;
         return true;
     }
     if (approval_request_ && !approvals_->is_pending(approval_request_->approval_id)) {
+        if (approvals_->was_expired(approval_request_->approval_id)) {
+            approval_expired_ = true;
+            approval_challenge_.clear();
+            approval_confirmation_input_.clear();
+            return true;
+        }
         approval_request_.reset();
         approval_challenge_.clear();
         approval_confirmation_input_.clear();
         approval_scroll_ = 0;
+        approval_expired_ = false;
         return true;
     }
     return false;
@@ -91,11 +99,26 @@ bool TuiEventLoop::sync_approval_dialog()
 bool TuiEventLoop::handle_approval_key(wint_t key, bool key_code)
 {
     if (!approval_request_) return false;
+    if (key_code && key == KEY_F(10)) {
+        static_cast<void>(approvals_->resolve(approval_request_->approval_id, ApprovalDecision::cancelled));
+        request_exit();
+        return true;
+    }
+    if (approval_expired_ || std::chrono::steady_clock::now() >= approval_request_->expires_at) {
+        approval_expired_ = true;
+        approval_challenge_.clear();
+        approval_confirmation_input_.clear();
+        if ((key_code && key == KEY_ENTER) || (!key_code && (key == 10 || key == 13 || key == 27))) {
+            approval_request_.reset();
+            approval_scroll_ = 0;
+            approval_expired_ = false;
+        }
+        return true;
+    }
     int rows = 0, cols = 0;
     getmaxyx(terminal_.window(), rows, cols);
     const auto page = static_cast<std::size_t>(std::max(1, rows - 2));
     if (key_code) {
-        if (key == KEY_F(10)) { approvals_->resolve(approval_request_->approval_id, ApprovalDecision::cancelled); request_exit(); return true; }
         if (key == KEY_ENTER) {
             const auto decision = !TuiView::approval_inspectable(rows, cols) ? ApprovalDecision::unavailable
                 : matches_approval_confirmation(approval_challenge_, approval_confirmation_input_)
@@ -118,7 +141,6 @@ bool TuiEventLoop::handle_approval_key(wint_t key, bool key_code)
         if (approval_confirmation_input_.size() < 64) approval_confirmation_input_.push_back(static_cast<char>(key));
         return true;
     }
-    if (key == 'n' || key == 'N') { static_cast<void>(approvals_->resolve(approval_request_->approval_id, ApprovalDecision::denied)); return true; }
     if (key == 27) { static_cast<void>(approvals_->resolve(approval_request_->approval_id, ApprovalDecision::cancelled)); return true; }
     if (key == 10 || key == 13) {
         const auto decision = !TuiView::approval_inspectable(rows, cols) ? ApprovalDecision::unavailable

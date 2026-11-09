@@ -37,6 +37,67 @@ int width_of(std::string_view text)
     return width;
 }
 
+struct ComposerLayout {
+    std::vector<std::string> rows{1};
+    std::vector<std::pair<std::size_t, int>> cursor_positions;
+    std::vector<std::vector<std::pair<int, std::size_t>>> boundaries{{{0, 0}}};
+};
+
+ComposerLayout layout_composer(std::string_view input, int columns)
+{
+    const int usable = std::max(1, columns - 1);
+    ComposerLayout layout;
+    layout.cursor_positions.resize(input.size() + 1);
+    std::size_t row = 0;
+    int width = 0;
+    std::mbstate_t state{};
+    layout.cursor_positions[0] = {0, 0};
+
+    for (std::size_t i = 0; i < input.size();) {
+        if (input[i] == '\n') {
+            layout.cursor_positions[i] = {row, width};
+            ++row;
+            layout.rows.emplace_back();
+            layout.boundaries.push_back({{0, i + 1}});
+            width = 0;
+            state = {};
+            layout.cursor_positions[i + 1] = {row, 0};
+            ++i;
+            continue;
+        }
+
+        wchar_t wc{};
+        const auto decoded = std::mbrtowc(&wc, input.data() + i, input.size() - i, &state);
+        const bool invalid = decoded == static_cast<std::size_t>(-1) || decoded == static_cast<std::size_t>(-2);
+        const std::size_t count = invalid ? 1 : (decoded == 0 ? 1 : decoded);
+        const int glyph_width = invalid ? 1 : std::max(0, ::wcwidth(wc));
+        if (width > 0 && width + glyph_width > usable) {
+            ++row;
+            layout.rows.emplace_back();
+            layout.boundaries.push_back({{0, i}});
+            width = 0;
+            layout.cursor_positions[i] = {row, 0};
+        }
+        layout.rows[row].append(input.substr(i, count));
+        width += glyph_width;
+        i += count;
+        if (invalid) state = {};
+        layout.boundaries[row].push_back({width, i});
+        layout.cursor_positions[i] = {row, width};
+    }
+    return layout;
+}
+
+std::size_t byte_at_column(const std::vector<std::pair<int, std::size_t>>& boundaries, int column)
+{
+    std::size_t result = boundaries.empty() ? 0 : boundaries.front().second;
+    for (const auto& [cell, byte] : boundaries) {
+        if (cell > column) break;
+        result = byte;
+    }
+    return result;
+}
+
 std::vector<std::string> wrap(std::string_view text,
                               std::string_view first_prefix,
                               std::string_view continuation_prefix,
@@ -369,6 +430,53 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns) 
     return result;
 }
 
+TuiComposerRender TuiView::rendered_composer(std::string_view input, std::size_t cursor_byte,
+                                             int columns, int visible_rows) const
+{
+    TuiComposerRender result;
+    if (visible_rows <= 0) return result;
+    const auto layout = layout_composer(input, columns);
+    if (layout.rows.empty() || layout.cursor_positions.empty()) return result;
+    const auto [cursor_row, cursor_column] = layout.cursor_positions[std::min(cursor_byte, input.size())];
+    const auto visible = static_cast<std::size_t>(visible_rows);
+    result.first_visual_row = cursor_row + 1 > visible ? cursor_row + 1 - visible : 0;
+    const auto end = std::min(layout.rows.size(), result.first_visual_row + visible);
+    result.rows.assign(layout.rows.begin() + static_cast<std::ptrdiff_t>(result.first_visual_row),
+                       layout.rows.begin() + static_cast<std::ptrdiff_t>(end));
+    result.cursor_visual_row = cursor_row - result.first_visual_row;
+    result.cursor_column = std::min(cursor_column, std::max(0, columns - 2));
+    return result;
+}
+
+int TuiView::composer_cursor_column(std::string_view input, std::size_t cursor_byte, int columns) const
+{
+    const auto layout = layout_composer(input, columns);
+    if (layout.cursor_positions.empty()) return 0;
+    return layout.cursor_positions[std::min(cursor_byte, input.size())].second;
+}
+
+std::size_t TuiView::move_composer_cursor_vertical(std::string_view input, std::size_t cursor_byte,
+                                                  int direction, int desired_column, int columns) const
+{
+    const auto layout = layout_composer(input, columns);
+    if (layout.cursor_positions.empty() || direction == 0) return std::min(cursor_byte, input.size());
+    const auto row = layout.cursor_positions[std::min(cursor_byte, input.size())].first;
+    const auto target = direction < 0 ? (row == 0 ? 0 : row - 1)
+                                      : std::min(row + 1, layout.rows.size() - 1);
+    return byte_at_column(layout.boundaries[target], std::max(0, desired_column));
+}
+
+std::size_t TuiView::move_composer_cursor_to_row_edge(std::string_view input, std::size_t cursor_byte,
+                                                     bool to_end, int columns) const
+{
+    const auto layout = layout_composer(input, columns);
+    if (layout.cursor_positions.empty()) return 0;
+    const auto row = layout.cursor_positions[std::min(cursor_byte, input.size())].first;
+    const auto& boundaries = layout.boundaries[row];
+    if (boundaries.empty()) return std::min(cursor_byte, input.size());
+    return to_end ? boundaries.back().second : boundaries.front().second;
+}
+
 std::string TuiView::status_line(TuiPage page, TuiFocus focus, int columns) const
 {
     const BoundedHistory* history = page == TuiPage::tools ? &tool_activity_
@@ -433,23 +541,18 @@ void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation
     }
     if (conversation && rows >= 7) {
         (void)mvwaddstr(window, composer_top, 0, " Input (Enter newline, F9 submit):");
-        const auto all = lines(input);
         const auto visible = std::max(1, rows - composer_top - 1);
-        const auto first = all.size() > static_cast<std::size_t>(visible) ? all.size() - static_cast<std::size_t>(visible) : 0;
-        for (std::size_t i = first; i < all.size() && composer_top + 1 + static_cast<int>(i - first) < rows; ++i)
-            (void)mvwaddstr(window, composer_top + 1 + static_cast<int>(i - first), 0, all[i].c_str());
-        const auto prefix = input.substr(0, std::min(cursor, input.size()));
-        const auto line_start = prefix.rfind('\n');
-        const auto current = line_start == std::string_view::npos ? prefix : prefix.substr(line_start + 1);
-        const int y = std::min(rows - 1, composer_top + 1 + static_cast<int>(std::count(prefix.begin(), prefix.end(), '\n')) - static_cast<int>(first));
-        (void)wmove(window, std::max(0, y), std::min(cols - 1, width_of(current)));
+        const auto composer = rendered_composer(input, cursor, cols, visible);
+        for (std::size_t i = 0; i < composer.rows.size(); ++i) {
+            const int y = composer_top + 1 + static_cast<int>(i);
+            if (y < rows) (void)mvwaddstr(window, y, 0, composer.rows[i].c_str());
+        }
+        const int y = composer_top + 1 + static_cast<int>(composer.cursor_visual_row);
+        (void)wmove(window, std::clamp(y, 0, rows - 1), std::clamp(composer.cursor_column, 0, cols - 1));
     } else if (conversation && rows >= 4) {
-        const auto prefix = input.substr(0, std::min(cursor, input.size()));
-        const auto prefix_lines = lines(prefix);
-        const auto all = lines(input);
-        const auto line_index = std::min(prefix_lines.size() - 1, all.size() - 1);
-        (void)mvwaddstr(window, rows - 1, 0, all[line_index].c_str());
-        (void)wmove(window, rows - 1, std::min(cols - 1, width_of(prefix_lines.back())));
+        const auto composer = rendered_composer(input, cursor, cols, 1);
+        if (!composer.rows.empty()) (void)mvwaddstr(window, rows - 1, 0, composer.rows.front().c_str());
+        (void)wmove(window, rows - 1, std::clamp(composer.cursor_column, 0, cols - 1));
     }
     (void)wnoutrefresh(window);
     (void)doupdate();

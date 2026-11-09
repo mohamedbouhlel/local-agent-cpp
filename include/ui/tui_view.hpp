@@ -27,6 +27,13 @@ struct TuiMessage {
     bool incomplete = false;
 };
 
+struct TuiComposerRender {
+    std::vector<std::string> rows;
+    std::size_t first_visual_row = 0;
+    std::size_t cursor_visual_row = 0;
+    int cursor_column = 0;
+};
+
 class TuiView final {
 public:
     void set_status(std::string_view status);
@@ -43,6 +50,13 @@ public:
     // wrapping and multiline role-label behavior can be tested deterministically.
     std::vector<std::string> rendered_conversation_rows(int columns) const;
     std::vector<std::string> rendered_page_rows(TuiPage page, int columns) const;
+    TuiComposerRender rendered_composer(std::string_view input, std::size_t cursor_byte,
+                                        int columns, int visible_rows) const;
+    int composer_cursor_column(std::string_view input, std::size_t cursor_byte, int columns) const;
+    std::size_t move_composer_cursor_vertical(std::string_view input, std::size_t cursor_byte,
+                                             int direction, int desired_column, int columns) const;
+    std::size_t move_composer_cursor_to_row_edge(std::string_view input, std::size_t cursor_byte,
+                                                bool to_end, int columns) const;
     std::string status_line(TuiPage page, TuiFocus focus, int columns) const;
 
     void scroll_up();

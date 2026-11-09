@@ -116,6 +116,8 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-08-tui-approval-key-input-fix.md](reports/2026-11-08-tui-approval-key-input-fix.md) | Correction de la saisie caractère par caractère du dialogue TUI d'approbation `write_file` et validation PTY |
 | [2026-11-08-v1-proto-001-malformed-sse-fix.md](reports/2026-11-08-v1-proto-001-malformed-sse-fix.md) | Correctif V1-PROTO-001 : trame JSON SSE malformée rejetée, tests de régression CLI/TUI et résultats de validation |
 | [2026-11-08-tui-final-event-drain-on-close.md](reports/2026-11-08-tui-final-event-drain-on-close.md) | Correction de la notification d'approbation perdue lors de la fermeture TUI |
+| [2026-11-08-v1-manual-recipe-and-docs.md](reports/2026-11-08-v1-manual-recipe-and-docs.md) | Documentation corrigée de l'approbation `write_file` et protocole de recette manuelle/compilation Debian au candidat v1.0 |
+| [2026-11-09-v1-final-qualification-consolidation.md](reports/2026-11-09-v1-final-qualification-consolidation.md) | Consolidation post-PR #37, résultats automatisés datés, observations Ghostty rapportées et réserves de qualification v1.0 |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

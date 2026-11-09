@@ -2,7 +2,7 @@
 
 Agent conversationnel en ligne de commande, écrit en C++20, qui échange en streaming SSE avec un serveur LLM compatible OpenAI (`POST /v1/chat/completions`). Il expose quatre outils sur un répertoire `workspace/` : `list_files`, `read_file`, `search_files`, `write_file`.
 
-> **Plateforme d'exécution : Linux avec Landlock opérationnel.** L'application refuse de démarrer sans ce confinement, notamment sur macOS ; un compilateur C++20 ne suffit donc pas à rendre le binaire utilisable sur ces systèmes. Voir [USAGE.md](USAGE.md#5-outils-disponibles) pour les limites de sécurité. État vérifié par lecture du code au commit `465faae586c8f268d276597df05724431c750085`, 2026-11-05.
+> **Plateforme d'exécution : Linux avec Landlock opérationnel.** L'application refuse de démarrer sans ce confinement. Voir [USAGE.md](USAGE.md#5-outils-disponibles) pour les limites de sécurité. La qualification de convergence a été exécutée au SHA `81964be88279754fae11980c4c46f2a2c8ee37fd` (Debian 13.7); elle ne constitue pas une garantie pour tous les noyaux Linux.
 
 ## Prérequis
 
@@ -35,7 +35,7 @@ ncursesw depuis un terminal interactif, lancer `./build/agent --ui=tui` ;
 
 La configuration est chargée depuis **l'environnement du processus** (`std::getenv`) ; le binaire ne lit pas directement `.env`. Les valeurs par défaut figurent dans [USAGE.md](USAGE.md#2-configuration) et `.env.example`. `workspace/` est relatif **au répertoire de lancement** ; le programme crée ce répertoire s'il manque et rejette une racine qui est un lien symbolique.
 
-## Vérifier les tests versionnés
+## Tests
 
 ```sh
 cmake -S . -B build-tests -DAGENT_BUILD_TESTS=ON
@@ -43,7 +43,11 @@ cmake --build build-tests
 ctest --test-dir build-tests --output-on-failure
 ```
 
-Les tests sont désactivés par défaut. Le code versionné contient **118 déclarations `TEST(...)`** réparties en **7 groupes CTest sous Linux**. Le relevé historique de M4 indiquait **403 assertions**; le 2026-11-05, après le correctif de désactivation de l'écrasement, le harnais a été relancé : **118 cas / 407 assertions réussis**, CTest **7/7 groupes**.
+Les tests sont désactivés par défaut. Pour les activer et les lancer, utilisez les commandes ci-dessus. La campagne de qualification initiale au SHA `81964be88279754fae11980c4c46f2a2c8ee37fd` avait rapporté **253 cas / 8 044 assertions** et **13/13 groupes CTest**. Après le correctif de saisie TUI PR #37, le harnais a rapporté **258 cas / 8 065 assertions**, dont **25 cas / 353 assertions TUI ciblés**, et CTest **13/13** sur le commit de branche `9914585f37b8934f65bdb000a2a27626f9a33243`. Ces exécutions sont datées et ne prétendent pas avoir été rejouées sur le merge `617e9dd56d39d13a145bdb44fcc2b28153da8f87`.
+
+`write_file` ne crée un fichier qu'après une approbation explicite, propre à chaque demande. L'interface présente le chemin, la taille, les répertoires parents concernés et le contenu intégral sous une forme inspectable; une confirmation exacte par défi est requise. Le refus, l'annulation, l'expiration ou l'indisponibilité de l'interface n'autorisent aucune création. L'écrasement reste interdit. Voir [USAGE.md](USAGE.md#5-outils-disponibles).
+
+Le binaire propose une CLI classique et une TUI ncursesw sélectionnée avec `--ui=tui`. Le nom technique livré reste `agent-cpp` / `agent`; l'identité graphique LOFITERM n'est pas incluse dans cette version du dépôt.
 
 ## Documentation
 

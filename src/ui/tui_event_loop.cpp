@@ -302,6 +302,8 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
 {
     if (approval_request_) return handle_approval_key(key, key_code);
     if (key_code) {
+        int terminal_rows = 0, terminal_columns = 0;
+        getmaxyx(terminal_.window(), terminal_rows, terminal_columns);
         if (key == KEY_F(10)) { request_exit(); return true; }
         if (key == KEY_F(9)) {
             if (navigation_.can_submit()) submit_input();
@@ -319,6 +321,14 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
         if (key == KEY_NPAGE) { view_.scroll_page_down(navigation_.page()); return true; }
         if (key == KEY_UP || key == KEY_DOWN) {
             const int direction = key == KEY_UP ? -1 : 1;
+            if (navigation_.page() == TuiPage::conversation && navigation_.focus() == TuiFocus::composer) {
+                if (!preferred_composer_column_) {
+                    preferred_composer_column_ = view_.composer_cursor_column(input_, cursor_byte_, terminal_columns);
+                }
+                cursor_byte_ = view_.move_composer_cursor_vertical(input_, cursor_byte_, direction,
+                                                                    *preferred_composer_column_, terminal_columns);
+                return true;
+            }
             if (navigation_.move_selection(direction)) return true;
             if (navigation_.focus() == TuiFocus::content) {
                 if (direction < 0) view_.scroll_page_up(navigation_.page());
@@ -326,11 +336,20 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
                 return true;
             }
         }
-        if (key == KEY_LEFT && cursor_byte_ > 0) { --cursor_byte_; while (cursor_byte_ > 0 && (static_cast<unsigned char>(input_[cursor_byte_]) & 0xc0) == 0x80) --cursor_byte_; return true; }
-        if (key == KEY_RIGHT && cursor_byte_ < input_.size()) { ++cursor_byte_; while (cursor_byte_ < input_.size() && (static_cast<unsigned char>(input_[cursor_byte_]) & 0xc0) == 0x80) ++cursor_byte_; return true; }
+        if (key == KEY_HOME || key == KEY_END) {
+            if (navigation_.page() == TuiPage::conversation && navigation_.focus() == TuiFocus::composer) {
+                cursor_byte_ = view_.move_composer_cursor_to_row_edge(input_, cursor_byte_, key == KEY_END,
+                                                                       terminal_columns);
+                preferred_composer_column_.reset();
+                return true;
+            }
+        }
+        if (key == KEY_LEFT && cursor_byte_ > 0) { --cursor_byte_; while (cursor_byte_ > 0 && (static_cast<unsigned char>(input_[cursor_byte_]) & 0xc0) == 0x80) --cursor_byte_; preferred_composer_column_.reset(); return true; }
+        if (key == KEY_RIGHT && cursor_byte_ < input_.size()) { ++cursor_byte_; while (cursor_byte_ < input_.size() && (static_cast<unsigned char>(input_[cursor_byte_]) & 0xc0) == 0x80) ++cursor_byte_; preferred_composer_column_.reset(); return true; }
         if (key == KEY_BACKSPACE || key == KEY_DC) {
             if (key == KEY_BACKSPACE && cursor_byte_ > 0) { auto start = cursor_byte_ - 1; while (start > 0 && (static_cast<unsigned char>(input_[start]) & 0xc0) == 0x80) --start; input_.erase(start, cursor_byte_ - start); cursor_byte_ = start; }
             else if (key == KEY_DC && cursor_byte_ < input_.size()) { auto end = cursor_byte_ + 1; while (end < input_.size() && (static_cast<unsigned char>(input_[end]) & 0xc0) == 0x80) ++end; input_.erase(cursor_byte_, end - cursor_byte_); }
+            preferred_composer_column_.reset();
             return true;
         }
         return false;
@@ -345,11 +364,11 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
     if (key == KEY_UP) { view_.scroll_page_up(navigation_.page()); return true; }
     if (key == KEY_DOWN) { view_.scroll_page_down(navigation_.page()); return true; }
     if (navigation_.focus() != TuiFocus::composer || !navigation_.can_submit()) return false;
-    if (key == 10 || key == 13) { input_.insert(cursor_byte_++, 1, '\n'); return true; }
+    if (key == 10 || key == 13) { input_.insert(cursor_byte_++, 1, '\n'); preferred_composer_column_.reset(); return true; }
     if (key >= 32 && key <= 0x10ffff) {
         wchar_t wc = static_cast<wchar_t>(key); char bytes[MB_LEN_MAX]{}; std::mbstate_t state{};
         const auto n = std::wcrtomb(bytes, wc, &state);
-        if (n != static_cast<std::size_t>(-1)) { input_.insert(cursor_byte_, bytes, n); cursor_byte_ += n; return true; }
+        if (n != static_cast<std::size_t>(-1)) { input_.insert(cursor_byte_, bytes, n); cursor_byte_ += n; preferred_composer_column_.reset(); return true; }
     }
     return false;
 }
@@ -360,6 +379,7 @@ void TuiEventLoop::submit_input()
     if (input_.empty()) { view_.set_status("Empty message not sent."); return; }
     const auto message = std::move(input_);
     input_.clear(); cursor_byte_ = 0;
+    preferred_composer_column_.reset();
     view_.add_user_message(message);
     event_details_incomplete_ = false;
     active_turn_id_.reset();

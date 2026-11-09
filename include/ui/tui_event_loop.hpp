@@ -41,6 +41,7 @@ private:
     TerminalTextSanitizer sanitizer_;
     std::string input_;
     std::size_t cursor_byte_ = 0;
+    std::optional<int> preferred_composer_column_;
     std::optional<std::future<TurnCompletion>> active_turn_;
     std::optional<TurnId> active_turn_id_;
     std::shared_ptr<const WriteApprovalRequest> approval_request_;

@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <clocale>
 #include <filesystem>
 #include <fstream>
 #include <poll.h>
@@ -21,6 +22,67 @@
 #include <vector>
 
 namespace {
+struct TuiScreenSnapshot {
+    std::vector<std::string> rows;
+    int cursor_row = -1;
+    int cursor_column = -1;
+};
+
+TuiScreenSnapshot draw_tui_screen(agent::ui::TuiView& view, std::string_view input, std::size_t cursor,
+                                  int rows, int columns)
+{
+    int master = -1, slave = -1;
+    winsize size{};
+    size.ws_row = static_cast<unsigned short>(rows);
+    size.ws_col = static_cast<unsigned short>(columns);
+    if (::openpty(&master, &slave, nullptr, nullptr, &size) != 0) return {};
+    FILE* input_stream = ::fdopen(::dup(slave), "r");
+    FILE* output_stream = ::fdopen(::dup(slave), "w");
+    ::close(slave);
+    if (!input_stream || !output_stream) {
+        if (input_stream) std::fclose(input_stream);
+        if (output_stream) std::fclose(output_stream);
+        ::close(master);
+        return {};
+    }
+
+    const char* old_term_value = std::getenv("TERM");
+    const std::string old_term = old_term_value ? old_term_value : "";
+    const bool had_term = old_term_value != nullptr;
+    const char* old_locale_value = std::setlocale(LC_ALL, nullptr);
+    const std::string old_locale = old_locale_value ? old_locale_value : "C";
+    ::setenv("TERM", "xterm-256color", 1);
+    static_cast<void>(std::setlocale(LC_ALL, "C.UTF-8"));
+    SCREEN* screen = ::newterm("xterm-256color", output_stream, input_stream);
+    TuiScreenSnapshot result;
+    if (screen != nullptr) {
+        static_cast<void>(::set_term(screen));
+        static_cast<void>(::resizeterm(rows, columns));
+        agent::ui::TuiNavigation navigation;
+        view.draw(stdscr, true, navigation, input, cursor);
+        getyx(stdscr, result.cursor_row, result.cursor_column);
+        result.rows.resize(static_cast<std::size_t>(rows));
+        for (int y = 0; y < rows; ++y) {
+            auto& line = result.rows[static_cast<std::size_t>(y)];
+            line.reserve(static_cast<std::size_t>(columns));
+            for (int x = 0; x < columns; ++x) {
+                const chtype cell = mvwinch(stdscr, y, x);
+                const auto ch = static_cast<char>(cell & A_CHARTEXT);
+                line.push_back(ch >= 32 && ch < 127 ? ch : ' ');
+            }
+        }
+        (void)::endwin();
+        ::delscreen(screen);
+    }
+    if (had_term) ::setenv("TERM", old_term.c_str(), 1);
+    else ::unsetenv("TERM");
+    static_cast<void>(std::setlocale(LC_ALL, old_locale.c_str()));
+    std::fclose(input_stream);
+    std::fclose(output_stream);
+    ::close(master);
+    return result;
+}
+
 std::string sse_delta(std::string text)
 {
     nlohmann::json value{{"choices", nlohmann::json::array({{{"index", 0}, {"delta", {{"content", std::move(text)}}}}})}};
@@ -204,6 +266,139 @@ TEST(tui3, typed_no_is_retained_until_enter_without_leaking_to_composer)
     CHECK(run.dialog_kept_typed_no);
     CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
     CHECK_EQ(server.received_bodies().size(), std::size_t(2));
+}
+
+TEST(tui3, multiline_composer_keeps_cursor_and_visible_content_inside_its_viewport)
+{
+    const std::string prompt = "Utilise write_file pour créer uniquement le fichier\n"
+        "preuve-accord.txt avec exactement ce contenu :\n\nACCORD_V1_2026\n\nNe crée aucun autre fichier.";
+    agent::ui::TuiView view;
+    const auto at_start = draw_tui_screen(view, prompt, 0, 12, 48);
+    CHECK_EQ(at_start.rows.size(), std::size_t(12));
+    CHECK(at_start.cursor_row >= 9);
+    CHECK(at_start.cursor_row <= 11);
+    CHECK(at_start.rows[9].find("Utilise write_file") != std::string::npos);
+
+    const auto at_end = draw_tui_screen(view, prompt, prompt.size(), 12, 48);
+    CHECK(at_end.cursor_row >= 9);
+    CHECK(at_end.cursor_row <= 11);
+    CHECK(at_end.rows[static_cast<std::size_t>(at_end.cursor_row)].find("Ne cr") != std::string::npos);
+    const auto logical_end = view.rendered_composer(prompt, prompt.size(), 47, 3);
+    CHECK(!logical_end.rows.empty());
+    CHECK_EQ(logical_end.rows.back(), std::string("Ne crée aucun autre fichier."));
+    for (int row = 2; row < 8; ++row) {
+        CHECK(at_end.rows[static_cast<std::size_t>(row)].find("Utilise write_file") == std::string::npos);
+        CHECK(at_end.rows[static_cast<std::size_t>(row)].find("Ne crée aucun autre fichier.") == std::string::npos);
+    }
+}
+
+TEST(tui3, composer_vertical_navigation_tracks_wrapped_and_blank_visual_rows)
+{
+    agent::ui::TuiView view;
+    const std::string input = "abcdefghij\n\nXYZ";
+    CHECK_EQ(view.move_composer_cursor_vertical(input, 8, -1, 3, 6), std::size_t(3));
+    CHECK_EQ(view.move_composer_cursor_vertical(input, 8, 1, 3, 6), std::size_t(11));
+    CHECK_EQ(view.move_composer_cursor_vertical(input, 11, 1, 3, 6), std::size_t(15));
+    CHECK_EQ(view.move_composer_cursor_to_row_edge(input, 13, false, 6), std::size_t(12));
+    CHECK_EQ(view.move_composer_cursor_to_row_edge(input, 12, true, 6), std::size_t(15));
+    CHECK_EQ(view.move_composer_cursor_vertical(input, 0, -1, 0, 6), std::size_t(0));
+    CHECK_EQ(view.move_composer_cursor_vertical(input, input.size(), 1, 3, 6), input.size());
+}
+
+TEST(tui3, composer_wrap_respects_terminal_cell_width_and_keeps_utf8_text)
+{
+    const char* old_locale_value = std::setlocale(LC_ALL, nullptr);
+    const std::string old_locale = old_locale_value ? old_locale_value : "C";
+    static_cast<void>(std::setlocale(LC_ALL, "C.UTF-8"));
+    agent::ui::TuiView view;
+    const std::string input = "Aé界BC";
+    const auto layout = view.rendered_composer(input, input.size(), 6, 4);
+    CHECK_EQ(layout.rows.size(), std::size_t(2));
+    CHECK_EQ(layout.rows[0], std::string("Aé界B"));
+    CHECK_EQ(layout.rows[1], std::string("C"));
+    CHECK_EQ(view.move_composer_cursor_to_row_edge(input, input.size(), false, 6), std::size_t(7));
+    CHECK_EQ(view.move_composer_cursor_to_row_edge(input, 7, true, 6), input.size());
+    static_cast<void>(std::setlocale(LC_ALL, old_locale.c_str()));
+}
+
+TEST(tui3, pasted_multiline_prompt_survives_cursor_navigation_resize_and_f9_exactly)
+{
+    tests::TempDir working_directory("tui_multiline_prompt_exact");
+    MockHttpServer server;
+    MockHttpServer::Response response;
+    response.body = sse_delta("prompt received") + "data: [DONE]\n\n";
+    server.enqueue(std::move(response));
+
+    const std::string prompt = "Utilise write_file pour créer uniquement le fichier\n"
+        "preuve-accord.txt avec exactement ce contenu :\n\nACCORD_V1_2026\n\nNe crée aucun autre fichier.";
+    int master = -1;
+    winsize size{}; size.ws_row = 10; size.ws_col = 18;
+    const pid_t child = ::forkpty(&master, nullptr, nullptr, &size);
+    CHECK(child >= 0);
+    if (child == 0) {
+        (void)::chdir(working_directory.path().c_str());
+        const auto executable = std::filesystem::read_symlink("/proc/self/exe").parent_path() / "tui_pty_driver";
+        ::setenv("TERM", "xterm-256color", 1);
+        ::setenv("LC_ALL", "C.UTF-8", 1);
+        ::execl(executable.c_str(), executable.c_str(), server.url("/v1/chat/completions").c_str(), "normal", nullptr);
+        _exit(127);
+    }
+
+    std::string output;
+    auto drain = [&] (std::chrono::milliseconds duration) {
+        const auto deadline = std::chrono::steady_clock::now() + duration;
+        while (std::chrono::steady_clock::now() < deadline) {
+            pollfd descriptor{master, POLLIN, 0};
+            if (::poll(&descriptor, 1, 20) > 0 && (descriptor.revents & POLLIN)) {
+                char bytes[4096];
+                const auto count = ::read(master, bytes, sizeof(bytes));
+                if (count > 0) output.append(bytes, static_cast<std::size_t>(count));
+            }
+        }
+    };
+    drain(std::chrono::milliseconds(200));
+    static_cast<void>(::write(master, prompt.data(), prompt.size())); // terminal paste, including blank lines
+    static_cast<void>(::write(master, "\033OH\033OF", 6)); // xterm Home then End; no text should be inserted
+    size.ws_row = 12; size.ws_col = 30;
+    static_cast<void>(::ioctl(master, TIOCSWINSZ, &size));
+    static_cast<void>(::kill(child, SIGWINCH));
+    drain(std::chrono::milliseconds(80));
+    static_cast<void>(::write(master, "\033[20~", 5)); // F9
+
+    bool sent_close = false;
+    bool exited = false;
+    int status = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(6);
+    while (std::chrono::steady_clock::now() < deadline) {
+        drain(std::chrono::milliseconds(30));
+        if (!sent_close && !server.received_bodies().empty()) {
+            static_cast<void>(::write(master, "\033[21~", 5)); // F10
+            sent_close = true;
+        }
+        if (::waitpid(child, &status, WNOHANG) == child) { exited = true; break; }
+    }
+    if (sent_close && !exited) {
+        const auto close_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < close_deadline) {
+            if (::waitpid(child, &status, WNOHANG) == child) { exited = true; break; }
+            drain(std::chrono::milliseconds(20));
+        }
+    }
+    if (!exited) {
+        static_cast<void>(::kill(child, SIGKILL));
+        (void)::waitpid(child, &status, 0);
+        CHECK(false);
+    }
+    (void)::close(master);
+    CHECK(WIFEXITED(status));
+    if (WIFEXITED(status)) CHECK_EQ(WEXITSTATUS(status), 0);
+    CHECK(sent_close);
+    const auto bodies = server.received_bodies();
+    CHECK_EQ(bodies.size(), std::size_t(1));
+    if (bodies.size() == 1) {
+        const auto payload = nlohmann::json::parse(bodies.front());
+        CHECK_EQ(payload.at("messages").at(0).at("content").get<std::string>(), prompt);
+    }
 }
 
 TEST(tui3, typed_confirmation_approves_only_after_enter)

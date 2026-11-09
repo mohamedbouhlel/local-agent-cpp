@@ -79,9 +79,18 @@ Les commandes de préparation, lancement CLI/TUI, compilation Debian 13 et contr
 
 ## Diff documentaire et contrôles
 
-La branche documentaire existante reste basée sur `81964be…`; le merge #37 est son descendant et a été vérifié comme `origin/main`. Aucun merge, rebase, commit ou push n'a été effectué. Les documents ne modifient pas le comportement produit.
+La branche de travail a reçu le commit documentaire `a1a4b41` puis le merge non destructif de `origin/main` (`617e9dd56d39d13a145bdb44fcc2b28153da8f87`) dans `ef8770b2bd2a1981067cebded8122fda233e6cbd`. Le correctif PR #37 est donc présent dans l'ascendance. Le diff `origin/main...HEAD` contient exclusivement les six documents listés dans le présent rapport; aucun fichier de production, test ou CMake n'y apparaît.
 
-À la fin de cette mission, les vérifications suivantes sont requises avant de considérer le livrable documentaire prêt : `git diff --check`, validation des liens relatifs nouvellement ajoutés, revue du statut des fichiers et comparaison du statut UI-4 avant/après. Les résultats doivent être rapportés sans les confondre avec des tests de produit.
+Vérifications exécutées après réconciliation :
+
+- `git diff --check origin/main...HEAD` : réussi.
+- `git status --short` : propre après le merge; seuls les commits documentaires sont en avance.
+- Liens Markdown relatifs des six documents modifiés/ajoutés : aucun chemin cible manquant.
+- Recherche de fins de ligne avec espaces/tabulations dans les six documents : aucune occurrence.
+- Checkout principal UI-4 : mêmes cinq fichiers suivis modifiés et quatre fichiers non suivis avant/après; aucun contenu touché par cette mission.
+- Build/tests : non exécutés, car seules des modifications documentaires étaient autorisées.
+
+Le merge de `origin/main` a fait entrer dans l'historique du worktree les changements de code déjà fusionnés par la PR #37. Ils ne font pas partie du diff de cette branche par rapport à `origin/main` et ne sont pas des modifications apportées par cette mission.
 
 ## Verdict
 

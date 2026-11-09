@@ -118,7 +118,11 @@ l'implémentation se trouve dans `src/prompt_reader.cpp` et `src/main.cpp`.
 Les outils ne sont **pas** invocables manuellement depuis le REPL : c'est le
 LLM qui décide de les appeler pendant qu'il compose sa réponse.
 
-`write_file` prépare et vérifie le contenu avant publication. Sous Linux,
+`write_file` prépare et vérifie le contenu avant publication. Toute création
+requiert une approbation explicite pour cette demande précise; aucun accord
+n'est mémorisé pour une création ultérieure. Le contrôle intervient avant la
+création des répertoires parents. Sans décision valide, aucun fichier ni
+répertoire parent demandé n'est créé. Sous Linux,
 une création part d'un fichier temporaire anonyme
 (`O_TMPFILE`), publié atomiquement sans écrasement avec `linkat`; le système
 de fichiers doit prendre en charge ce mécanisme. Un échec d'ouverture est
@@ -240,9 +244,35 @@ suffit de les déposer dans ce dossier.
   fichier doit ne pas déjà exister; modifier le contenu d'un fichier existant
   n'est pas pris en charge. Retourne une confirmation du type
   `wrote 42 bytes to notes/a.txt (created new file)`.
-- **Quand** : quand le modèle doit produire un fichier (notes, code, rapport)
-  dans le workspace. C'est une écriture **autonome** : aucune confirmation
-  humaine n'est demandée dans le REPL.
+- **Quand** : quand le modèle demande de produire un fichier (notes, code,
+  rapport) dans le workspace. La demande ne suffit pas à déclencher l'écriture :
+  l'utilisateur doit examiner la demande et confirmer explicitement chaque
+  création.
+- **Demande affichée** : workspace effectif, chemin cible relatif, taille en
+  octets, répertoires parents manquants et contenu complet. Le contenu est
+  représenté en ASCII réversible; les caractères de contrôle et retours à la
+  ligne sont échappés pour éviter leur interprétation par le terminal. Dans la
+  TUI, le contenu peut être parcouru; vérifiez-en toute la plage avant de
+  décider. Sur un terminal trop petit pour garder l'inspection et le défi
+  visibles, l'approbation est indisponible et la création est refusée.
+- **Confirmer dans la CLI classique** : après l'affichage intégral de la
+  demande, saisir exactement `yes ` suivi des 32 chiffres hexadécimaux du défi
+  affiché, puis Entrée. `yes` seul, une réponse différente, une entrée déjà en
+  attente, une entrée vide ou une entrée non interactive ne donne pas
+  l'approbation. EOF annule la demande. Une demande expire au plus tard après
+  cinq minutes.
+- **Confirmer dans la TUI** : saisir dans le dialogue le texte exact
+  `yes <défi>` affiché, puis Entrée. Échap annule et F10 ferme l'application
+  en annulant la demande. Toute réponse non exacte, dont `no`,
+  ne refuse qu'après validation par Entrée; taper `n` seul laisse le dialogue
+  ouvert. Le dialogue permet de parcourir le contenu avec les flèches et
+  PageUp/PageDown. En dessous de 6 lignes ou 48
+  colonnes, l'approbation est indisponible; agrandir le terminal ou refuser.
+- **Résultat** : seul un défi courant correctement confirmé autorise le writer.
+  L'écriture n'est annoncée comme réussie qu'après son exécution effective.
+  Refus, annulation, expiration, fermeture, erreur d'interface ou absence de
+  terminal utilisable ne créent pas le fichier. L'approbation ne contourne ni
+  la validation du chemin, ni Landlock, ni le refus d'écrasement.
 - **Écrasement désactivé** : le schéma de l'outil n'expose plus le paramètre
   `overwrite`. Tout appel direct avec `overwrite: true` est refusé. Si la cible
   existe déjà, l'outil renvoie au modèle :

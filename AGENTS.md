@@ -16,18 +16,20 @@ set -a; source .env; set +a
 
 ## Test
 
-> Les **118 déclarations de cas** et les **7 groupes CTest Linux** ont été
-> vérifiés par lecture du dépôt au SHA `465faae586c8f268d276597df05724431c750085`.
-> Au 2026-11-05, le harnais a été relancé sur la branche de correctif :
-> **118 cas, 407 assertions, zéro échec**; CTest : **7/7 groupes réussis**.
-> Voir [PROJECT_CONTEXT.md](docs/context/PROJECT_CONTEXT.md) pour les
-> observations historiques antérieures.
+> Qualification initiale rapportée au SHA `81964be88279754fae11980c4c46f2a2c8ee37fd` :
+> **253 cas, 8 044 assertions, zéro échec; CTest 13/13**. Après le correctif
+> TUI PR #37, l'exécution rapportée sur le commit de branche
+> `9914585f37b8934f65bdb000a2a27626f9a33243` est de **258 cas, 8 065 assertions,
+> zéro échec; CTest 13/13**, dont 25 cas / 353 assertions TUI ciblés. Ces
+> résultats n'ont pas été rejoués sur le merge `617e9dd56d39d13a145bdb44fcc2b28153da8f87`.
+> Les anciens chiffres 118/407 et 7 groupes sont des relevés historiques; voir
+> [PROJECT_CONTEXT.md](docs/context/PROJECT_CONTEXT.md) et les rapports datés.
 
 Suite de tests versionnée dans `tests/` : micro-harnais maison (`test_support.hpp`,
 `test_main.cpp`, aucun framework externe) accompagné d'un mock HTTP loopback
-(`mock_http_server.*`). 118 cas / 407 assertions au dernier relevé du
-2026-11-05, répartis en 7 groupes : `sse`,
-`workspace`, `sandbox`, `http`, `agent`, `repl`, `mock`.
+(`mock_http_server.*`). Les groupes déclarés actuellement sont : `sse`,
+`workspace`, `http`, `agent`, `ui`, `ui3`, `tui2`, `tui3`, `tui4a`, `tui4b1`,
+`repl`, `mock`, et `sandbox` sous Linux.
 Désactivée par défaut, elle ne pèse jamais sur l'exécutable de production ;
 activation explicite :
 cmake -S . -B build-tests -DAGENT_BUILD_TESTS=ON
@@ -163,12 +165,14 @@ directement (voir Architecture) sans relister les .cpp.
 - Tool-calling : actif via ToolRegistry (dispatch des tool_calls dans
   Agent::send, borné par max_tool_iterations = 5). Quatre outils sandboxés
   dans workspace/ sont exposés au modèle : list_files, read_file,
-  search_files et write_file. write_file écrit de façon autonome (aucune
-  confirmation humaine), crée uniquement des fichiers absents et refuse
+  search_files et write_file. Chaque création `write_file` exige une
+  approbation explicite par défi courant, après inspection du contenu. Les
+  refus, annulations, expirations et indisponibilités n'autorisent aucune
+  écriture. L'outil crée uniquement des fichiers absents et refuse
   explicitement `overwrite: true` jusqu'à l'isolation de l'identité système.
   La création est atomique : contenu écrit dans un inode temporaire anonyme,
   puis publié sans écrasement par `linkat(AT_EMPTY_PATH)`.
-- Erreurs réseau : si le serveur local est injoignable (curl échoue), 
+- Erreurs réseau : si le serveur local est injoignable (curl échoue),
   afficher un message clair mentionnant LLM_BASE_URL plutôt que de laisser
   remonter une exception brute.
 

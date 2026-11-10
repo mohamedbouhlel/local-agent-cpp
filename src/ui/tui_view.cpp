@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cwchar>
+#include <cstdlib>
 #include <iterator>
 #include <iomanip>
 #include <limits>
@@ -13,6 +14,109 @@
 
 namespace agent::ui {
 namespace {
+enum class VisualStyle { normal, muted, brand, selected, peach, mint, pink, status };
+
+bool initialize_colors()
+{
+    if (std::getenv("NO_COLOR") != nullptr || !has_colors()) return false;
+    if (start_color() == ERR) return false;
+    static_cast<void>(use_default_colors());
+    const short background = COLOR_BLACK;
+    static_cast<void>(init_pair(1, COLOR_WHITE, background));
+    static_cast<void>(init_pair(2, COLOR_CYAN, background));
+    static_cast<void>(init_pair(3, COLOR_MAGENTA, background));
+    static_cast<void>(init_pair(4, COLOR_YELLOW, background));
+    static_cast<void>(init_pair(5, COLOR_GREEN, background));
+    static_cast<void>(init_pair(6, COLOR_WHITE, COLOR_RED));
+    static_cast<void>(init_pair(7, COLOR_CYAN, background));
+    return true;
+}
+
+int style_attributes(VisualStyle style, bool colors)
+{
+    if (!colors) {
+        if (style == VisualStyle::selected || style == VisualStyle::brand) return A_REVERSE | A_BOLD;
+        if (style == VisualStyle::status || style == VisualStyle::pink) return A_BOLD;
+        return A_NORMAL;
+    }
+    switch (style) {
+    case VisualStyle::normal: return COLOR_PAIR(1);
+    case VisualStyle::muted: return COLOR_PAIR(2);
+    case VisualStyle::brand: return COLOR_PAIR(3) | A_BOLD;
+    case VisualStyle::selected: return COLOR_PAIR(3) | A_REVERSE | A_BOLD;
+    case VisualStyle::peach: return COLOR_PAIR(4) | A_BOLD;
+    case VisualStyle::mint: return COLOR_PAIR(5) | A_BOLD;
+    case VisualStyle::pink: return COLOR_PAIR(6) | A_BOLD;
+    case VisualStyle::status: return COLOR_PAIR(7) | A_BOLD;
+    }
+    return A_NORMAL;
+}
+
+std::string clip_to_cells(std::string_view text, int max_cells)
+{
+    std::string result;
+    if (max_cells <= 0) return result;
+    std::mbstate_t state{};
+    int cells = 0;
+    for (std::size_t i = 0; i < text.size();) {
+        wchar_t wc{};
+        const auto count = std::mbrtowc(&wc, text.data() + i, text.size() - i, &state);
+        if (count == static_cast<std::size_t>(-1) || count == static_cast<std::size_t>(-2)) {
+            if (cells + 1 > max_cells) break;
+            result.push_back('?');
+            ++cells;
+            ++i;
+            state = {};
+            continue;
+        }
+        const auto bytes = count == 0 ? std::size_t{1} : count;
+        const int width = std::max(0, ::wcwidth(wc));
+        if (cells + width > max_cells) break;
+        result.append(text.substr(i, bytes));
+        cells += width;
+        i += bytes;
+    }
+    return result;
+}
+
+void draw_at(WINDOW* window, int row, int column, std::string_view text, int max_cells,
+             VisualStyle style, bool colors)
+{
+    if (row < 0 || column < 0 || max_cells <= 0) return;
+    const auto clipped = clip_to_cells(text, max_cells);
+    static_cast<void>(wattron(window, style_attributes(style, colors)));
+    static_cast<void>(mvwaddstr(window, row, column, clipped.c_str()));
+    static_cast<void>(wattroff(window, A_ATTRIBUTES));
+}
+
+void draw_line(WINDOW* window, int row, std::string_view text, int columns,
+               VisualStyle style, bool colors)
+{
+    draw_at(window, row, 0, text, columns - 1, style, colors);
+}
+
+std::string page_title(TuiPage page)
+{
+    switch (page) {
+    case TuiPage::conversation: return "CONVERSATION";
+    case TuiPage::tools: return "TOOLS";
+    case TuiPage::metrics: return "ACTIVITY";
+    case TuiPage::diagnostics: return "DIAGNOSTICS";
+    case TuiPage::configuration: return "CONFIGURATION";
+    case TuiPage::help: return "HELP";
+    case TuiPage::count: return "LOFITERM";
+    }
+    return "LOFITERM";
+}
+
+std::string navigation_label(int key, std::string_view label, bool selected, bool compact)
+{
+    const std::string short_label = compact ? std::string(label.substr(0, std::min<std::size_t>(4, label.size())))
+                                             : std::string(label);
+    return selected ? "[F" + std::to_string(key) + " " + short_label + "]"
+                    : " F" + std::to_string(key) + " " + short_label + " ";
+}
+
 std::vector<std::string> lines(std::string_view text)
 {
     std::vector<std::string> out;
@@ -610,6 +714,11 @@ std::string TuiView::status_line(TuiPage page, TuiFocus focus, int columns) cons
                          : label + " " + active + " [" + focus_label + "] " + status_;
 }
 
+bool TuiView::layout_supported(int rows, int columns) noexcept
+{
+    return rows >= 20 && columns >= 60;
+}
+
 void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation,
                    std::string_view input, std::size_t cursor)
 {
@@ -617,24 +726,57 @@ void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation
     int rows = 0, cols = 0;
     getmaxyx(window, rows, cols);
     if (rows <= 0 || cols <= 0) return;
+    const bool colors = initialize_colors();
+    static_cast<void>(wbkgd(window, colors ? COLOR_PAIR(1) : A_NORMAL));
     werase(window);
     const auto page = navigation.page();
-    const std::string active = std::to_string(static_cast<int>(page) + 1) + "/6 " + TuiNavigation::short_page_name(page);
-    std::string menu;
-    if (cols >= 74) {
-        menu = "F1 Chat  F2 Tools  F3 Metrics  F4 Diagnostics  F5 Config  F6 Help";
-    } else if (cols >= 48) {
-        menu = "F1 Chat F2 Tools F3 Metrics F4 Diag F5 Config F6 Help";
-    } else {
-        menu = "F1-F6 " + active;
+    if (!layout_supported(rows, cols)) {
+        static_cast<void>(curs_set(0));
+        draw_line(window, 0, "LOFITERM", cols, VisualStyle::brand, colors);
+        if (rows <= 5 || cols < 20) {
+            if (rows > 1) draw_line(window, 1, "MIN 60x20", cols, VisualStyle::normal, colors);
+            if (rows > 2) draw_line(window, 2, "TOO SMALL", cols, VisualStyle::pink, colors);
+            if (rows > 3) draw_line(window, 3, "F10 QUIT", cols, VisualStyle::peach, colors);
+            (void)wnoutrefresh(window);
+            (void)doupdate();
+            return;
+        }
+        if (rows > 2) draw_line(window, 2, "Terminal too small for the TUI.", cols, VisualStyle::pink, colors);
+        if (rows > 3) draw_line(window, 3, "Minimum: 60 columns x 20 rows.", cols, VisualStyle::normal, colors);
+        if (rows > 4) draw_line(window, 4, "Resize terminal; draft is preserved.", cols, VisualStyle::muted, colors);
+        if (rows > 6) draw_line(window, rows - 2, "F10 Quit", cols, VisualStyle::peach, colors);
+        (void)wnoutrefresh(window);
+        (void)doupdate();
+        return;
     }
-    if (navigation.focus() == TuiFocus::menu) menu = "> " + menu;
-    (void)mvwaddnstr(window, 0, 0, menu.c_str(), std::max(0, cols));
-    const std::string status = status_line(page, navigation.focus(), cols);
-    if (rows > 1) (void)mvwaddnstr(window, 1, 0, status.c_str(), std::max(0, cols));
-    const int chat_top = std::min(2, rows - 1);
+    const bool compact = cols < 100 || rows < 30;
+    draw_line(window, 0, compact ? "LOFITERM  |  LOCAL AI TERMINAL" : "LOFITERM  |  LOCAL AI TERMINAL  -  PEACH FOG",
+              cols, VisualStyle::brand, colors);
+    int nav_column = 0;
+    if (navigation.focus() == TuiFocus::menu) {
+        draw_at(window, 1, nav_column, "MENU", cols - 1, VisualStyle::peach, colors);
+        nav_column = width_of("MENU");
+    }
+    const bool compact_nav = cols < 100;
+    const std::array<std::string_view, 6> nav_labels = {"CHAT", "TOOLS", "ACTIVITY", "DIAG", "CONFIG", "HELP"};
+    for (int i = 0; i < 6 && nav_column < cols - 1; ++i) {
+        if (nav_column > 0) ++nav_column;
+        const bool selected = static_cast<int>(page) == i;
+        const auto item = navigation_label(i + 1, nav_labels[static_cast<std::size_t>(i)], selected, compact_nav);
+        const auto style = selected ? VisualStyle::selected : VisualStyle::muted;
+        draw_at(window, 1, nav_column, item, cols - 1 - nav_column, style, colors);
+        nav_column += width_of(item);
+    }
+    std::string status = status_line(page, navigation.focus(), cols);
+    const bool partial = status.find("PARTIAL") != std::string::npos;
+    draw_line(window, 2, status, cols, partial ? VisualStyle::pink : VisualStyle::status, colors);
+    const auto title_style = page == TuiPage::metrics ? VisualStyle::mint
+        : page == TuiPage::diagnostics ? VisualStyle::pink : VisualStyle::peach;
+    draw_line(window, 3, std::string(unicode ? "─ " : "+-") + page_title(page)
+              + " ----------------", cols, title_style, colors);
+    const int chat_top = 4;
     const bool conversation = page == TuiPage::conversation;
-    const int composer_top = conversation ? std::max(chat_top, rows - (rows >= 7 ? 4 : 1)) : rows;
+    const int composer_top = conversation ? rows - 4 : rows;
     const int chat_height = std::max(0, composer_top - chat_top);
     auto content = rendered_page_rows(page, cols);
     auto& offset = conversation ? scroll_offset_ : page_scroll_offsets_[static_cast<std::size_t>(page)];
@@ -645,23 +787,22 @@ void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation
     const auto end = content.size() > offset ? content.size() - offset : 0;
     const auto begin = end > static_cast<std::size_t>(chat_height) ? end - static_cast<std::size_t>(chat_height) : 0;
     for (std::size_t i = begin; i < end && static_cast<int>(i - begin) < chat_height; ++i) {
-        (void)mvwaddstr(window, chat_top + static_cast<int>(i - begin), 0, content[i].c_str());
+        draw_line(window, chat_top + static_cast<int>(i - begin), content[i], cols,
+                  VisualStyle::normal, colors);
     }
-    if (conversation && rows >= 7) {
-        (void)mvwaddstr(window, composer_top, 0, " Input (Enter newline, F9 submit):");
+    if (conversation) {
+        draw_line(window, composer_top, "MESSAGE  |  Enter newline  |  F9 send", cols,
+                  navigation.focus() == TuiFocus::composer ? VisualStyle::peach : VisualStyle::muted, colors);
         const auto visible = std::max(1, rows - composer_top - 1);
         const auto composer = rendered_composer(input, cursor, cols, visible);
         for (std::size_t i = 0; i < composer.rows.size(); ++i) {
             const int y = composer_top + 1 + static_cast<int>(i);
-            if (y < rows) (void)mvwaddstr(window, y, 0, composer.rows[i].c_str());
+            if (y < rows) draw_line(window, y, composer.rows[i], cols, VisualStyle::normal, colors);
         }
         const int y = composer_top + 1 + static_cast<int>(composer.cursor_visual_row);
         (void)wmove(window, std::clamp(y, 0, rows - 1), std::clamp(composer.cursor_column, 0, cols - 1));
-    } else if (conversation && rows >= 4) {
-        const auto composer = rendered_composer(input, cursor, cols, 1);
-        if (!composer.rows.empty()) (void)mvwaddstr(window, rows - 1, 0, composer.rows.front().c_str());
-        (void)wmove(window, rows - 1, std::clamp(composer.cursor_column, 0, cols - 1));
     }
+    static_cast<void>(curs_set(conversation && navigation.focus() == TuiFocus::composer ? 1 : 0));
     (void)wnoutrefresh(window);
     (void)doupdate();
 }

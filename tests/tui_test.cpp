@@ -121,6 +121,8 @@ struct TuiApprovalRun {
     bool exited = false;
     bool dialog_seen = false;
     bool dialog_kept_typed_no = false;
+    bool no_tool_request_before_typed_no_enter = false;
+    bool no_file_before_typed_no_enter = false;
     bool expiry_notice_seen = false;
     std::string output;
 };
@@ -210,8 +212,17 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
         } else if (decision == "typed-no") {
             write("n");
             write("o");
-            read_for(std::chrono::milliseconds(100));
+            // Synchronize on the PTY's rendered dialog state, not a fixed
+            // pause that can expire before ncurses flushes its redraw.
+            const auto rendered_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (result.output.find("Input: no") == std::string::npos
+                   && std::chrono::steady_clock::now() < rendered_deadline) {
+                read_for(std::chrono::milliseconds(20));
+            }
             result.dialog_kept_typed_no = result.output.find("Input: no") != std::string::npos;
+            result.no_tool_request_before_typed_no_enter = server.received_bodies().size() == 1;
+            result.no_file_before_typed_no_enter =
+                !std::filesystem::exists(working_directory / "workspace/nested/denied.txt");
             write("\n");
             const auto followup_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
             while (std::chrono::steady_clock::now() < followup_deadline
@@ -281,6 +292,8 @@ TEST(tui3, typed_no_is_retained_until_enter_without_leaking_to_composer)
     CHECK(run.exited);
     CHECK(run.dialog_seen);
     CHECK(run.dialog_kept_typed_no);
+    CHECK(run.no_tool_request_before_typed_no_enter);
+    CHECK(run.no_file_before_typed_no_enter);
     CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
     CHECK_EQ(server.received_bodies().size(), std::size_t(2));
 }

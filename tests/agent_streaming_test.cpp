@@ -702,18 +702,38 @@ TEST(agent, echec_en_plein_flux_najoute_pas_de_message_assistant)
 TEST(agent, boucle_outils_limitee_a_cinq_iterations)
 {
     tests::TempDir workspace("agent_loop_cap");
+    prepare_workspace(workspace.path());
     ToolRegistry registry;
     register_workspace_tools(registry, workspace.path(), test_approval_provider());
 
     MockHttpServer server;
-    // Le serveur repond TOUJOURS un tool_call : la boucle doit s'arreter au cap.
+    // Le modèle de test répète volontairement le même outil, malgré le résultat
+    // précédent. L'agent doit lui renvoyer chaque paire assistant/tool et
+    // s'arrêter au plafond sans supprimer le résultat du workspace.
     for (int request = 0; request < 5; ++request) {
         server.enqueue(stream_response(
-            delta_tool_call(0, "call_l", {{"name", "list_files"}, {"arguments", "{}"}}) + sse_done()));
+            delta_tool_call(0, "call_l" + std::to_string(request),
+                            {{"name", "list_files"}, {"arguments", "{}"}}) + sse_done()));
     }
 
     Agent agent(registry, config_for(server));
     CHECK_THROWS_MSG(agent.send("boucle infinie", AgentCallbacks{}),
                      "tool call loop exceeded maximum iterations");
-    CHECK_EQ(server.received_bodies().size(), std::size_t(5));
+    const auto bodies = server.received_bodies();
+    CHECK_EQ(bodies.size(), std::size_t(5));
+    for (std::size_t request = 0; request < bodies.size(); ++request) {
+        const auto messages = nlohmann::json::parse(bodies[request]).at("messages");
+        CHECK_EQ(messages.size(), std::size_t(1 + 2 * request));
+        CHECK_EQ(messages.at(0).at("role").get<std::string>(), std::string("user"));
+        for (std::size_t prior = 0; prior < request; ++prior) {
+            const auto& assistant = messages.at(1 + 2 * prior);
+            const auto& tool = messages.at(2 + 2 * prior);
+            const auto expected_id = "call_l" + std::to_string(prior);
+            CHECK_EQ(assistant.at("role").get<std::string>(), std::string("assistant"));
+            CHECK_EQ(assistant.at("tool_calls").at(0).at("id").get<std::string>(), expected_id);
+            CHECK_EQ(tool.at("role").get<std::string>(), std::string("tool"));
+            CHECK_EQ(tool.at("tool_call_id").get<std::string>(), expected_id);
+            CHECK_EQ(tool.at("content").get<std::string>(), std::string("a.txt\n"));
+        }
+    }
 }

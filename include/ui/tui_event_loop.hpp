@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/agent_worker.hpp"
+#include "ui/metrics.hpp"
 #include "ui/presentation_state.hpp"
 #include "ui/terminal_text_sanitizer.hpp"
 #include "ui/terminal_session.hpp"
@@ -37,6 +38,7 @@ private:
     TuiView& view_;
     std::shared_ptr<TuiApprovalBroker> approvals_;
     PresentationState presentation_state_;
+    MetricCollector metrics_;
     TuiNavigation navigation_;
     TerminalTextSanitizer sanitizer_;
     std::string input_;

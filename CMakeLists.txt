@@ -29,6 +29,7 @@ add_library(agent_core STATIC
   src/workspace_write_authorization.cpp
   src/ui/console_renderer.cpp
   src/ui/console_session.cpp
+  src/ui/metrics.cpp
   src/ui/presentation_controller.cpp
   src/ui/plain_renderer.cpp
   src/ui/presentation_state.cpp

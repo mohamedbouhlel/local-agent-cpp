@@ -9,6 +9,7 @@
 
 #include <curses.h>
 #include "ui/bounded_history.hpp"
+#include "ui/metrics.hpp"
 #include "ui/tui_navigation.hpp"
 #include "ui/tui_view_data.hpp"
 #include "workspace_write_authorization.hpp"
@@ -43,6 +44,7 @@ public:
     void finish_assistant(bool complete);
     void add_notice(std::string_view safe_text);
     void set_view_data(TuiViewData data);
+    void set_metrics(TurnMetrics metrics);
     void add_tool_activity(std::string_view safe_text);
     void add_diagnostic(std::string_view safe_text);
 
@@ -86,6 +88,7 @@ private:
 
     std::vector<TuiMessage> messages_;
     TuiViewData view_data_;
+    TurnMetrics metrics_;
     BoundedHistory tool_activity_;
     BoundedHistory diagnostics_;
     std::array<std::size_t, static_cast<std::size_t>(TuiPage::count)> page_scroll_offsets_{};

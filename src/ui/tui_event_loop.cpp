@@ -171,6 +171,8 @@ bool TuiEventLoop::drain_events()
                          || snapshot.observer_failures > observer_failures_at_submit_)) {
         if (!event_details_incomplete_) view_.add_diagnostic("Event queue reported lost details; this turn's event detail is incomplete.");
         event_details_incomplete_ = true;
+        metrics_.mark_event_details_incomplete();
+        view_.set_metrics(metrics_.snapshot());
         view_.set_status("Event details incomplete: the event queue reported lost details.");
         changed = true;
     }
@@ -179,17 +181,21 @@ bool TuiEventLoop::drain_events()
 
 void TuiEventLoop::handle_event(const AgentEvent& event)
 {
+    const bool turn_boundary = std::holds_alternative<RequestStarted>(event.payload) && !active_turn_id_;
+    bool applied = false;
     if (!presentation_state_desynchronized_) {
-        const auto applied = presentation_state_.apply(event);
-        if (!applied.applied()) {
+        const auto apply_result = presentation_state_.apply(event);
+        if (apply_result.applied()) {
+            applied = true;
+        } else {
             presentation_state_desynchronized_ = true;
             // A new RequestStarted after a previous dropped turn is a valid
             // resynchronization boundary. The worker's FIFO still preserves
             // order within this new turn; its completion independently says
             // whether this turn lost details.
-            const bool turn_boundary = std::holds_alternative<RequestStarted>(event.payload) && !active_turn_id_;
             if (!turn_boundary) {
                 event_details_incomplete_ = true;
+                metrics_.mark_event_details_incomplete();
                 view_.add_diagnostic("Presentation event sequence is inconsistent; details may be incomplete.");
                 view_.set_status("Event details incomplete: inconsistent or missing event sequence.");
             }
@@ -198,9 +204,23 @@ void TuiEventLoop::handle_event(const AgentEvent& event)
     if (!active_turn_id_) active_turn_id_ = event.metadata.turn_id;
     if (event.metadata.turn_id != active_turn_id_) {
         event_details_incomplete_ = true;
+        metrics_.mark_event_details_incomplete();
+        view_.set_metrics(metrics_.snapshot());
         view_.add_diagnostic("Presentation event turn correlation mismatch; details are incomplete.");
         view_.set_status("Event details incomplete: event correlation mismatch.");
         return;
+    }
+    if (applied || turn_boundary || presentation_state_desynchronized_) {
+        try {
+            metrics_.consume(event);
+        } catch (...) {
+            event_details_incomplete_ = true;
+            metrics_.mark_event_details_incomplete();
+            view_.add_diagnostic("Metric collection failed; turn metrics are incomplete.");
+            view_.set_status("Metrics incomplete: collection failed.");
+        }
+        if (!metrics_.snapshot().event_details_complete) event_details_incomplete_ = true;
+        view_.set_metrics(metrics_.snapshot());
     }
     std::visit([this](const auto& payload) {
         using T = std::decay_t<decltype(payload)>;
@@ -266,6 +286,7 @@ bool TuiEventLoop::collect_completion()
     auto result = active_turn_->get();
     active_turn_.reset();
     event_details_incomplete_ = event_details_incomplete_ || result.event_details_incomplete();
+    if (result.event_details_incomplete()) metrics_.mark_event_details_incomplete();
     const auto tail = sanitizer_.finish();
     if (!tail.empty()) view_.append_assistant_delta(tail);
     if (result.status == TurnStatus::returned) {
@@ -294,6 +315,7 @@ bool TuiEventLoop::collect_completion()
     active_turn_id_.reset();
     sanitizer_ = TerminalTextSanitizer{};
     event_details_incomplete_ = false;
+    view_.set_metrics(metrics_.snapshot());
     dirty_ = true;
     return true;
 }
@@ -382,6 +404,8 @@ void TuiEventLoop::submit_input()
     preferred_composer_column_.reset();
     view_.add_user_message(message);
     event_details_incomplete_ = false;
+    metrics_.begin_pending_turn();
+    view_.set_metrics(metrics_.snapshot());
     active_turn_id_.reset();
     const auto before = worker_.event_channel()->snapshot();
     dropped_events_at_submit_ = before.dropped_events;

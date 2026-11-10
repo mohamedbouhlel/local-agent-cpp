@@ -312,6 +312,20 @@ TEST(agent, failed_tool_is_reported_and_turn_can_complete)
     const auto& terminal = std::get<agent::ui::TurnFinished>(observer->events.back().payload);
     CHECK(terminal.outcome == agent::ui::TurnOutcome::completed);
     CHECK_EQ(terminal.tools_failed, std::uint32_t(1));
+
+    // A true execution error is fed back as the matching tool message; the
+    // next model response (and any repeated request) can observe the failure.
+    const auto requests = server.received_bodies();
+    CHECK_EQ(requests.size(), std::size_t(2));
+    if (requests.size() == 2) {
+        const auto messages = nlohmann::json::parse(requests[1]).at("messages");
+        CHECK_EQ(messages.size(), std::size_t(3));
+        CHECK_EQ(messages.at(1).at("role").get<std::string>(), std::string("assistant"));
+        CHECK_EQ(messages.at(1).at("tool_calls").at(0).at("id").get<std::string>(), std::string("call-fail"));
+        CHECK_EQ(messages.at(2).at("role").get<std::string>(), std::string("tool"));
+        CHECK_EQ(messages.at(2).at("tool_call_id").get<std::string>(), std::string("call-fail"));
+        CHECK_EQ(messages.at(2).at("content").get<std::string>(), std::string("tool error: handler failed"));
+    }
     check_single_terminal_sequence(observer->events);
 }
 

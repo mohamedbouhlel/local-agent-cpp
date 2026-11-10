@@ -121,6 +121,7 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-09-tui-multiline-composer-fix.md](reports/2026-11-09-tui-multiline-composer-fix.md) | Composeur TUI multiligne : viewport borné, curseur visuel, navigation par lignes et validation PTY du contenu transmis |
 | [2026-11-10-lofiterm-v1-physical-qualification.md](reports/2026-11-10-lofiterm-v1-physical-qualification.md) | Complément de recette Debian 13/Ghostty au SHA `78aab20` : build, tests et parcours réel d'approbation write_file rapportés par le mainteneur |
 | [2026-11-10-final-git-ui4-v1-freeze-audit.md](reports/2026-11-10-final-git-ui4-v1-freeze-audit.md) | Audit du SHA `b1d1942` : état Git, préservation du travail UI-4 local et décision sur le gel du socle technique v1.0 |
+| [2026-11-10-v1-technical-tag-freeze.md](reports/2026-11-10-v1-technical-tag-freeze.md) | Publication et vérification du tag annoté `v1.0.0-technical` sur le SHA `b1d1942` |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

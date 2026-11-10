@@ -119,6 +119,7 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-08-v1-manual-recipe-and-docs.md](reports/2026-11-08-v1-manual-recipe-and-docs.md) | Documentation corrigée de l'approbation `write_file` et protocole de recette manuelle/compilation Debian au candidat v1.0 |
 | [2026-11-09-v1-final-qualification-consolidation.md](reports/2026-11-09-v1-final-qualification-consolidation.md) | Consolidation post-PR #37, résultats automatisés datés, observations Ghostty rapportées et réserves de qualification v1.0 |
 | [2026-11-09-tui-multiline-composer-fix.md](reports/2026-11-09-tui-multiline-composer-fix.md) | Composeur TUI multiligne : viewport borné, curseur visuel, navigation par lignes et validation PTY du contenu transmis |
+| [2026-11-10-lofiterm-v1-physical-qualification.md](reports/2026-11-10-lofiterm-v1-physical-qualification.md) | Complément de recette Debian 13/Ghostty au SHA `78aab20` : build, tests et parcours réel d'approbation write_file rapportés par le mainteneur |
 
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi

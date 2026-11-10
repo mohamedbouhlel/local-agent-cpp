@@ -113,6 +113,7 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-05-ui-4-observable-metrics.md](reports/2026-11-05-ui-4-observable-metrics.md) | UI-4 — rapport historique du chantier local MetricCollector; résultats antérieurs, non réexécutés à ce SHA |
 | [2026-11-10-ui-4-metric-collector-integration.md](reports/2026-11-10-ui-4-metric-collector-integration.md) | UI-4 — intégration de métriques dérivées des événements réels dans CLI/TUI, avec limites et résultats au SHA de base |
 | [2026-11-10-ui-4-final-review.md](reports/2026-11-10-ui-4-final-review.md) | UI-4 — revue critique de MetricCollector, propagation de PARTIAL, saturation EventChannel et limites de mesure |
+| [2026-11-10-ui4-physical-qualification.md](reports/2026-11-10-ui4-physical-qualification.md) | UI-4 — qualification physique Debian 13/Ghostty sur le périmètre rapporté, avec réserves de saturation et de performance |
 | [2026-11-08-tui-retention-partial-indicator.md](reports/2026-11-08-tui-retention-partial-indicator.md) | Correctif de scroll et indicateur persistant après éviction FIFO, postérieur à la fusion de la PR #32 |
 | [2026-11-08-write-approval-implementation.md](reports/2026-11-08-write-approval-implementation.md) | Autorisation explicite par création `write_file`, intégration CLI/TUI, tests et limites avant revue |
 | [2026-11-08-write-approval-fresh-challenge-review.md](reports/2026-11-08-write-approval-fresh-challenge-review.md) | Revue du consentement anticipé CLI/TUI, défi par demande et résultats de validation |

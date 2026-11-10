@@ -29,7 +29,7 @@ int TuiEventLoop::run()
         getmaxyx(window, rows, cols);
         if (rows != last_rows_ || cols != last_columns_) {
             last_rows_ = rows; last_columns_ = cols;
-            view_.on_resize(cols, std::max(1, rows - 6));
+            view_.on_resize(cols, std::max(1, rows - 8));
             view_.set_status("Terminal resized; compact layout active when space is limited.");
             changed = true;
         }
@@ -328,7 +328,9 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
         getmaxyx(terminal_.window(), terminal_rows, terminal_columns);
         if (key == KEY_F(10)) { request_exit(); return true; }
         if (key == KEY_F(9)) {
-            if (navigation_.can_submit()) submit_input();
+            if (!TuiView::layout_supported(terminal_rows, terminal_columns)) {
+                view_.set_status("Resize terminal to at least 60x20 before sending.");
+            } else if (navigation_.can_submit()) submit_input();
             else view_.set_status("F9 sends only from Conversation.");
             return true;
         }

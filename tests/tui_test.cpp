@@ -2,6 +2,7 @@
 #include "test_support.hpp"
 #include "ui/tui_view.hpp"
 #include "ui/terminal_session.hpp"
+#include "ui/tui_view_data.hpp"
 #include "ui/ui_options.hpp"
 
 #include <pty.h>
@@ -12,6 +13,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <array>
 #include <clocale>
 #include <filesystem>
 #include <fstream>
@@ -19,6 +21,7 @@
 #include <regex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -26,10 +29,13 @@ struct TuiScreenSnapshot {
     std::vector<std::string> rows;
     int cursor_row = -1;
     int cursor_column = -1;
+    bool partial_bold = false;
 };
 
 TuiScreenSnapshot draw_tui_screen(agent::ui::TuiView& view, std::string_view input, std::size_t cursor,
-                                  int rows, int columns)
+                                  int rows, int columns,
+                                  agent::ui::TuiPage page = agent::ui::TuiPage::conversation,
+                                  bool force_no_color = false)
 {
     int master = -1, slave = -1;
     winsize size{};
@@ -49,9 +55,14 @@ TuiScreenSnapshot draw_tui_screen(agent::ui::TuiView& view, std::string_view inp
     const char* old_term_value = std::getenv("TERM");
     const std::string old_term = old_term_value ? old_term_value : "";
     const bool had_term = old_term_value != nullptr;
+    const char* old_no_color_value = std::getenv("NO_COLOR");
+    const std::string old_no_color = old_no_color_value ? old_no_color_value : "";
+    const bool had_no_color = old_no_color_value != nullptr;
     const char* old_locale_value = std::setlocale(LC_ALL, nullptr);
     const std::string old_locale = old_locale_value ? old_locale_value : "C";
     ::setenv("TERM", "xterm-256color", 1);
+    if (force_no_color) ::setenv("NO_COLOR", "1", 1);
+    else if (!had_no_color) ::unsetenv("NO_COLOR");
     static_cast<void>(std::setlocale(LC_ALL, "C.UTF-8"));
     SCREEN* screen = ::newterm("xterm-256color", output_stream, input_stream);
     TuiScreenSnapshot result;
@@ -59,6 +70,7 @@ TuiScreenSnapshot draw_tui_screen(agent::ui::TuiView& view, std::string_view inp
         static_cast<void>(::set_term(screen));
         static_cast<void>(::resizeterm(rows, columns));
         agent::ui::TuiNavigation navigation;
+        navigation.select(page);
         view.draw(stdscr, true, navigation, input, cursor);
         getyx(stdscr, result.cursor_row, result.cursor_column);
         result.rows.resize(static_cast<std::size_t>(rows));
@@ -67,6 +79,9 @@ TuiScreenSnapshot draw_tui_screen(agent::ui::TuiView& view, std::string_view inp
             line.reserve(static_cast<std::size_t>(columns));
             for (int x = 0; x < columns; ++x) {
                 const chtype cell = mvwinch(stdscr, y, x);
+                if (y == 2 && x < columns && (cell & A_CHARTEXT) != 0
+                    && (cell & A_CHARTEXT) != static_cast<chtype>(' ')
+                    && (cell & A_BOLD) != 0) result.partial_bold = true;
                 const auto ch = static_cast<char>(cell & A_CHARTEXT);
                 line.push_back(ch >= 32 && ch < 127 ? ch : ' ');
             }
@@ -76,6 +91,8 @@ TuiScreenSnapshot draw_tui_screen(agent::ui::TuiView& view, std::string_view inp
     }
     if (had_term) ::setenv("TERM", old_term.c_str(), 1);
     else ::unsetenv("TERM");
+    if (had_no_color) ::setenv("NO_COLOR", old_no_color.c_str(), 1);
+    else ::unsetenv("NO_COLOR");
     static_cast<void>(std::setlocale(LC_ALL, old_locale.c_str()));
     std::fclose(input_stream);
     std::fclose(output_stream);
@@ -273,23 +290,161 @@ TEST(tui3, multiline_composer_keeps_cursor_and_visible_content_inside_its_viewpo
     const std::string prompt = "Utilise write_file pour créer uniquement le fichier\n"
         "preuve-accord.txt avec exactement ce contenu :\n\nACCORD_V1_2026\n\nNe crée aucun autre fichier.";
     agent::ui::TuiView view;
-    const auto at_start = draw_tui_screen(view, prompt, 0, 12, 48);
-    CHECK_EQ(at_start.rows.size(), std::size_t(12));
-    CHECK(at_start.cursor_row >= 9);
-    CHECK(at_start.cursor_row <= 11);
-    CHECK(at_start.rows[9].find("Utilise write_file") != std::string::npos);
+    const auto at_start = draw_tui_screen(view, prompt, 0, 20, 60);
+    CHECK_EQ(at_start.rows.size(), std::size_t(20));
+    CHECK(at_start.cursor_row >= 17);
+    CHECK(at_start.cursor_row <= 19);
+    CHECK(at_start.rows[17].find("Utilise write_file") != std::string::npos);
 
-    const auto at_end = draw_tui_screen(view, prompt, prompt.size(), 12, 48);
-    CHECK(at_end.cursor_row >= 9);
-    CHECK(at_end.cursor_row <= 11);
+    const auto at_end = draw_tui_screen(view, prompt, prompt.size(), 20, 60);
+    CHECK(at_end.cursor_row >= 17);
+    CHECK(at_end.cursor_row <= 19);
     CHECK(at_end.rows[static_cast<std::size_t>(at_end.cursor_row)].find("Ne cr") != std::string::npos);
     const auto logical_end = view.rendered_composer(prompt, prompt.size(), 47, 3);
     CHECK(!logical_end.rows.empty());
     CHECK_EQ(logical_end.rows.back(), std::string("Ne crée aucun autre fichier."));
-    for (int row = 2; row < 8; ++row) {
+    for (int row = 4; row < 16; ++row) {
         CHECK(at_end.rows[static_cast<std::size_t>(row)].find("Utilise write_file") == std::string::npos);
         CHECK(at_end.rows[static_cast<std::size_t>(row)].find("Ne crée aucun autre fichier.") == std::string::npos);
     }
+}
+
+TEST(tui4a, lofiterm_layout_supports_reference_sizes_and_reports_smaller_terminals)
+{
+    CHECK(agent::ui::TuiView::layout_supported(40, 120));
+    CHECK(agent::ui::TuiView::layout_supported(30, 100));
+    CHECK(agent::ui::TuiView::layout_supported(24, 80));
+    CHECK(agent::ui::TuiView::layout_supported(20, 60));
+    CHECK(!agent::ui::TuiView::layout_supported(19, 60));
+    CHECK(!agent::ui::TuiView::layout_supported(20, 59));
+
+    agent::ui::TuiView view;
+    for (const auto& [rows, columns] : {std::pair{40, 120}, std::pair{30, 100},
+                                        std::pair{24, 80}, std::pair{20, 60}}) {
+        const auto screen = draw_tui_screen(view, "draft café", 10, rows, columns);
+        CHECK_EQ(screen.rows.size(), static_cast<std::size_t>(rows));
+        CHECK(screen.rows[0].find("LOFITERM") != std::string::npos);
+        CHECK(screen.rows[1].find("F1") != std::string::npos);
+        CHECK(screen.rows[1].find("F6") != std::string::npos);
+        CHECK(screen.rows[3].find("CONVERSATION") != std::string::npos);
+    }
+    const auto too_small = draw_tui_screen(view, "draft retained", 14, 19, 59);
+    CHECK(too_small.rows[0].find("LOFITERM") != std::string::npos);
+    CHECK(too_small.rows[2].find("Terminal too small") != std::string::npos);
+    CHECK(too_small.rows[3].find("60 columns x 20") != std::string::npos);
+    const auto tiny = draw_tui_screen(view, "draft retained", 14, 4, 10);
+    CHECK_EQ(tiny.rows.size(), std::size_t(4));
+    CHECK(tiny.rows[0].find("LOFITERM") != std::string::npos);
+    CHECK(tiny.rows[1].find("MIN 60x20") != std::string::npos);
+    CHECK(tiny.rows[2].find("TOO SMALL") != std::string::npos);
+    CHECK(tiny.rows[3].find("F10 QUIT") != std::string::npos);
+}
+
+TEST(tui4a, all_six_pages_show_their_active_navigation_and_section_title)
+{
+    agent::ui::TuiView view;
+    const std::array<std::string, 6> titles = {
+        "CONVERSATION", "TOOLS", "ACTIVITY", "DIAGNOSTICS", "CONFIGURATION", "HELP"
+    };
+    const std::array<std::string, 6> selected = {
+        "[F1 CHAT]", "[F2 TOOL]", "[F3 ACTI]", "[F4 DIAG]", "[F5 CONF]", "[F6 HELP]"
+    };
+    for (int i = 0; i < 6; ++i) {
+        const auto screen = draw_tui_screen(view, "draft retained", 15, 24, 80,
+            static_cast<agent::ui::TuiPage>(i));
+        CHECK(screen.rows[0].find("LOFITERM") != std::string::npos);
+        CHECK(screen.rows[1].find(selected[static_cast<std::size_t>(i)]) != std::string::npos);
+        CHECK(screen.rows[3].find(titles[static_cast<std::size_t>(i)]) != std::string::npos);
+    }
+}
+
+TEST(tui4a, partial_is_explicit_and_bold_without_color)
+{
+    agent::ui::TuiView view;
+    agent::ui::TurnMetrics metrics;
+    metrics.event_details_complete = false;
+    view.set_metrics(std::move(metrics));
+    const auto screen = draw_tui_screen(view, {}, 0, 24, 80, agent::ui::TuiPage::metrics, true);
+    CHECK(screen.rows[2].find("PARTIAL") != std::string::npos);
+    CHECK(screen.partial_bold);
+}
+
+TEST(tui4a, tools_and_metrics_projection_is_visible_in_the_panel_layout)
+{
+    agent::ui::TuiView view;
+    agent::ui::TuiViewData data;
+    data.tools.push_back({"read_file", "Read a workspace file"});
+    view.set_view_data(std::move(data));
+    const auto tools = draw_tui_screen(view, {}, 0, 24, 80, agent::ui::TuiPage::tools);
+    CHECK(tools.rows[3].find("TOOLS") != std::string::npos);
+    CHECK(tools.rows[4].find("Declared tools:") != std::string::npos);
+    CHECK(tools.rows[5].find("read_file") != std::string::npos);
+
+    agent::ui::TurnMetrics metrics;
+    metrics.turn_id = agent::ui::TurnId{7};
+    metrics.event_details_complete = false;
+    metrics.http_requests_started = 1;
+    view.set_metrics(std::move(metrics));
+    const auto activity = draw_tui_screen(view, {}, 0, 24, 80, agent::ui::TuiPage::metrics, true);
+    CHECK(activity.rows[3].find("ACTIVITY") != std::string::npos);
+    CHECK(activity.rows[2].find("PARTIAL") != std::string::npos);
+    CHECK(activity.rows[4].find("Observed metrics") != std::string::npos);
+    CHECK(activity.rows[5].find("PARTIAL:") != std::string::npos);
+    CHECK(activity.rows[6].find("Turn ID: 7") != std::string::npos);
+}
+
+TEST(tui4a, f9_cannot_submit_from_a_terminal_below_the_minimum_layout)
+{
+    tests::TempDir working_directory("tui_too_small_no_submit");
+    MockHttpServer server;
+    int master = -1;
+    winsize size{};
+    size.ws_row = 19;
+    size.ws_col = 59;
+    const pid_t child = ::forkpty(&master, nullptr, nullptr, &size);
+    CHECK(child >= 0);
+    if (child == 0) {
+        (void)::chdir(working_directory.path().c_str());
+        const auto executable = std::filesystem::read_symlink("/proc/self/exe").parent_path() / "tui_pty_driver";
+        ::setenv("TERM", "xterm-256color", 1);
+        ::setenv("LC_ALL", "C.UTF-8", 1);
+        ::execl(executable.c_str(), executable.c_str(), server.url("/v1/chat/completions").c_str(), "normal", nullptr);
+        _exit(127);
+    }
+    std::string output;
+    const auto drain = [&](std::chrono::milliseconds duration) {
+        const auto deadline = std::chrono::steady_clock::now() + duration;
+        while (std::chrono::steady_clock::now() < deadline) {
+            pollfd descriptor{master, POLLIN, 0};
+            if (::poll(&descriptor, 1, 20) > 0 && (descriptor.revents & POLLIN)) {
+                char bytes[2048];
+                const auto count = ::read(master, bytes, sizeof(bytes));
+                if (count > 0) output.append(bytes, static_cast<std::size_t>(count));
+            }
+        }
+    };
+    drain(std::chrono::milliseconds(150));
+    static_cast<void>(::write(master, "\033[20~", 5));
+    drain(std::chrono::milliseconds(100));
+    CHECK(output.find("LOFITERM") != std::string::npos);
+    CHECK(output.find("Terminal too small") != std::string::npos);
+    CHECK(server.received_bodies().empty());
+    static_cast<void>(::write(master, "\033[21~", 5));
+    int status = 0;
+    bool exited = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (::waitpid(child, &status, WNOHANG) == child) { exited = true; break; }
+        drain(std::chrono::milliseconds(20));
+    }
+    if (!exited) {
+        static_cast<void>(::kill(child, SIGKILL));
+        (void)::waitpid(child, &status, 0);
+    }
+    (void)::close(master);
+    CHECK(exited);
+    if (exited) CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    CHECK(server.received_bodies().empty());
 }
 
 TEST(tui3, composer_vertical_navigation_tracks_wrapped_and_blank_visual_rows)
@@ -332,7 +487,7 @@ TEST(tui3, pasted_multiline_prompt_survives_cursor_navigation_resize_and_f9_exac
     const std::string prompt = "Utilise write_file pour créer uniquement le fichier\n"
         "preuve-accord.txt avec exactement ce contenu :\n\nACCORD_V1_2026\n\nNe crée aucun autre fichier.";
     int master = -1;
-    winsize size{}; size.ws_row = 10; size.ws_col = 18;
+    winsize size{}; size.ws_row = 24; size.ws_col = 80;
     const pid_t child = ::forkpty(&master, nullptr, nullptr, &size);
     CHECK(child >= 0);
     if (child == 0) {
@@ -359,7 +514,7 @@ TEST(tui3, pasted_multiline_prompt_survives_cursor_navigation_resize_and_f9_exac
     drain(std::chrono::milliseconds(200));
     static_cast<void>(::write(master, prompt.data(), prompt.size())); // terminal paste, including blank lines
     static_cast<void>(::write(master, "\033OH\033OF", 6)); // xterm Home then End; no text should be inserted
-    size.ws_row = 12; size.ws_col = 30;
+    size.ws_row = 20; size.ws_col = 60;
     static_cast<void>(::ioctl(master, TIOCSWINSZ, &size));
     static_cast<void>(::kill(child, SIGWINCH));
     drain(std::chrono::milliseconds(80));

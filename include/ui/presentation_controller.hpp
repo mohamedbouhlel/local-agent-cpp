@@ -2,6 +2,7 @@
 
 #include "ui/agent_event.hpp"
 #include "ui/console_renderer.hpp"
+#include "ui/metrics.hpp"
 #include "ui/presentation_state.hpp"
 
 #include <memory>
@@ -18,6 +19,7 @@ public:
     void on_observer_failure() noexcept override;
 
     const PresentationSnapshot& snapshot() const noexcept { return state_.snapshot(); }
+    const TurnMetrics& metrics() const noexcept { return metrics_.snapshot(); }
     RendererMode mode() const noexcept { return renderer_->mode(); }
     void begin_turn() noexcept { turn_had_text_ = false; }
     bool observer_failed() const noexcept { return observer_failed_; }
@@ -29,6 +31,7 @@ public:
 private:
     std::unique_ptr<ConsoleRenderer> renderer_;
     PresentationState state_;
+    MetricCollector metrics_;
     bool observer_failed_ = false;
     bool turn_had_text_ = false;
 };

@@ -15,6 +15,7 @@ add_executable(agent_tests
   agent_events_test.cpp
   ui_test.cpp
   ui_renderer_test.cpp
+  ui_metrics_test.cpp
   agent_streaming_test.cpp
   agent_e2e_test.cpp
   agent_worker_test.cpp
@@ -37,7 +38,7 @@ if(UTIL_LIBRARY)
   target_link_libraries(agent_tests PRIVATE ${UTIL_LIBRARY})
 endif()
 
-set(test_groups sse workspace http agent ui ui3 tui2 tui3 tui4a tui4b1 repl mock)
+set(test_groups sse workspace http agent ui ui3 ui4 tui2 tui3 tui4a tui4b1 repl mock)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   list(APPEND test_groups sandbox)
 endif()

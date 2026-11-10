@@ -110,6 +110,9 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-07-post-tui4a-roadmap-reconciliation.md](reports/2026-11-07-post-tui4a-roadmap-reconciliation.md) | Réconciliation de la roadmap avec TUI-4A fusionnée et options proposées pour la suite |
 | [2026-11-07-tui-4b1-bounded-panel-history.md](reports/2026-11-07-tui-4b1-bounded-panel-history.md) | TUI-4B.1 — rétention FIFO bornée, comptée en octets UTF-8 neutralisés, pour les historiques Outils et Diagnostics |
 | [2026-11-07-tui-4b1-final-review.md](reports/2026-11-07-tui-4b1-final-review.md) | TUI-4B.1 — revue contradictoire, correction du dépassement transitoire de la collection et validation complète |
+| [2026-11-05-ui-4-observable-metrics.md](reports/2026-11-05-ui-4-observable-metrics.md) | UI-4 — rapport historique du chantier local MetricCollector; résultats antérieurs, non réexécutés à ce SHA |
+| [2026-11-10-ui-4-metric-collector-integration.md](reports/2026-11-10-ui-4-metric-collector-integration.md) | UI-4 — intégration de métriques dérivées des événements réels dans CLI/TUI, avec limites et résultats au SHA de base |
+| [2026-11-10-ui-4-final-review.md](reports/2026-11-10-ui-4-final-review.md) | UI-4 — revue critique de MetricCollector, propagation de PARTIAL, saturation EventChannel et limites de mesure |
 | [2026-11-08-tui-retention-partial-indicator.md](reports/2026-11-08-tui-retention-partial-indicator.md) | Correctif de scroll et indicateur persistant après éviction FIFO, postérieur à la fusion de la PR #32 |
 | [2026-11-08-write-approval-implementation.md](reports/2026-11-08-write-approval-implementation.md) | Autorisation explicite par création `write_file`, intégration CLI/TUI, tests et limites avant revue |
 | [2026-11-08-write-approval-fresh-challenge-review.md](reports/2026-11-08-write-approval-fresh-challenge-review.md) | Revue du consentement anticipé CLI/TUI, défi par demande et résultats de validation |

@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cwchar>
 #include <iterator>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -182,6 +184,37 @@ std::size_t retention_notice_rows(std::uint64_t evicted, std::uint64_t rejected,
     }
     return rows;
 }
+
+std::string metric_duration(const std::optional<std::chrono::steady_clock::duration>& duration)
+{
+    if (!duration) return "unavailable";
+    std::ostringstream output;
+    output << std::fixed << std::setprecision(3)
+           << std::chrono::duration<double, std::milli>(*duration).count() << " ms";
+    return output.str();
+}
+
+const char* tool_outcome(const std::optional<ToolMetricOutcome>& outcome)
+{
+    if (!outcome) return "in progress / unavailable";
+    return *outcome == ToolMetricOutcome::succeeded ? "succeeded" : "failed";
+}
+
+const char* http_outcome(const std::optional<HttpRequestOutcome>& outcome)
+{
+    if (!outcome) return "in progress / unavailable";
+    switch (*outcome) {
+    case HttpRequestOutcome::completed: return "transport completed";
+    case HttpRequestOutcome::failed: return "transport failed";
+    case HttpRequestOutcome::legacy_callback_aborted: return "legacy callback aborted";
+    }
+    return "unavailable";
+}
+
+std::string exact_count_or_unavailable(std::uint64_t value, bool overflowed)
+{
+    return overflowed ? "unavailable (counter overflow)" : std::to_string(value);
+}
 }
 
 void TuiView::set_status(std::string_view status) { status_ = status; }
@@ -226,6 +259,34 @@ void TuiView::add_notice(std::string_view text)
     preserve_anchor_after_content_change(old_rows);
 }
 void TuiView::set_view_data(TuiViewData data) { view_data_ = std::move(data); }
+void TuiView::set_metrics(TurnMetrics metrics)
+{
+    const auto index = static_cast<std::size_t>(TuiPage::metrics);
+    const auto old_rows = rendered_page_rows(TuiPage::metrics, last_columns_);
+    const auto height = static_cast<std::size_t>(std::max(1, last_chat_height_));
+    const auto old_offset = std::min(page_scroll_offsets_[index],
+        old_rows.size() > height ? old_rows.size() - height : 0);
+    const auto old_end = old_rows.size() > old_offset ? old_rows.size() - old_offset : 0;
+    const auto old_begin = old_end > height ? old_end - height : 0;
+    const std::string anchor = old_begin < old_rows.size() ? old_rows[old_begin] : std::string{};
+    const bool follows = page_follows_bottom_[index];
+
+    metrics_ = std::move(metrics);
+    const auto new_rows = rendered_page_rows(TuiPage::metrics, last_columns_);
+    if (follows) {
+        page_scroll_offsets_[index] = 0;
+        return;
+    }
+    const auto anchor_it = anchor.empty() ? new_rows.end()
+        : std::find(new_rows.begin(), new_rows.end(), anchor);
+    if (anchor_it != new_rows.end()) {
+        const auto anchor_row = static_cast<std::size_t>(std::distance(new_rows.begin(), anchor_it));
+        const auto end = std::min(new_rows.size(), anchor_row + height);
+        page_scroll_offsets_[index] = new_rows.size() - end;
+    } else {
+        page_scroll_offsets_[index] = new_rows.size() > height ? new_rows.size() - height : 0;
+    }
+}
 void TuiView::add_tool_activity(std::string_view text)
 {
     add_panel_history(tool_activity_, TuiPage::tools, sanitize_terminal_line(text));
@@ -385,7 +446,53 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns) 
         }
         break;
     case TuiPage::metrics:
-        source.emplace_back("Métriques indisponibles — MetricCollector non intégré");
+        source.emplace_back("Observed metrics for current/last turn:");
+        if (!metrics_.event_details_complete) {
+            source.emplace_back("PARTIAL: event loss or inconsistency; observed metrics are incomplete.");
+        }
+        if (!metrics_.turn_id) {
+            source.emplace_back("Unavailable: no turn metrics observed yet.");
+            break;
+        }
+        source.push_back("Turn ID: " + std::to_string(metrics_.turn_id->value));
+        source.push_back(std::string("Technical outcome: ") + (metrics_.outcome
+            ? (*metrics_.outcome == TurnOutcome::completed ? "completed" : "failed") : "unavailable"));
+        source.push_back("Turn duration: " + metric_duration(metrics_.duration));
+        source.push_back("First client-observed delta: " + metric_duration(metrics_.first_delta_latency)
+                         + " (not server TTFT)");
+        source.push_back("HTTP requests started: " + exact_count_or_unavailable(metrics_.http_requests_started,
+                                                                                 metrics_.counter_overflowed)
+                         + "; finished: " + exact_count_or_unavailable(metrics_.http_requests_finished,
+                                                                         metrics_.counter_overflowed));
+        source.push_back("Response body bytes received: "
+                         + (metrics_.response_body_bytes_received()
+                                ? std::to_string(*metrics_.response_body_bytes_received()) : "unavailable"));
+        source.push_back("Tool calls started: " + exact_count_or_unavailable(metrics_.tools_started,
+                                                                               metrics_.counter_overflowed)
+                         + "; succeeded: " + exact_count_or_unavailable(metrics_.successful_tools(),
+                                                                          metrics_.counter_overflowed)
+                         + "; failed: " + exact_count_or_unavailable(metrics_.failed_tools(),
+                                                                        metrics_.counter_overflowed));
+        source.push_back("Text fragments: " + exact_count_or_unavailable(metrics_.text_fragments,
+                                                                           metrics_.counter_overflowed)
+                         + " (fragments, not tokens)");
+        if (metrics_.detail_history_truncated) {
+            source.push_back("Detail history limited: HTTP evicted " + std::to_string(metrics_.evicted_http_details)
+                             + ", tools evicted " + std::to_string(metrics_.evicted_tool_details)
+                             + ", tool details rejected " + std::to_string(metrics_.rejected_tool_details) + ".");
+        }
+        for (const auto& request : metrics_.http_requests) {
+            std::string row = "HTTP request " + std::to_string(request.request_id.value) + ": "
+                + http_outcome(request.outcome) + ", duration " + metric_duration(request.duration)
+                + ", body bytes ";
+            row += request.response_body_bytes ? std::to_string(*request.response_body_bytes) : "unavailable";
+            source.push_back(std::move(row));
+        }
+        for (const auto& tool : metrics_.tools) {
+            source.push_back("Tool " + sanitize_terminal_line(tool.name) + " (request "
+                             + std::to_string(tool.request_id.value) + "): " + tool_outcome(tool.outcome)
+                             + ", duration " + metric_duration(tool.duration));
+        }
         break;
     case TuiPage::diagnostics:
         source.emplace_back("Observed diagnostics:");
@@ -482,7 +589,11 @@ std::string TuiView::status_line(TuiPage page, TuiFocus focus, int columns) cons
     const BoundedHistory* history = page == TuiPage::tools ? &tool_activity_
         : page == TuiPage::diagnostics ? &diagnostics_ : nullptr;
     std::string label;
-    if (history && (history->evicted_count() != 0 || history->rejected_too_large_count() != 0)) {
+    if (page == TuiPage::metrics && !metrics_.event_details_complete) {
+        label = "PARTIAL";
+    } else if (page == TuiPage::metrics && metrics_.detail_history_truncated) {
+        label = "DETAILS LIMITED";
+    } else if (history && (history->evicted_count() != 0 || history->rejected_too_large_count() != 0)) {
         label = "PARTIAL";
         if (columns >= 10 && history->evicted_count() != 0) {
             label += " E" + std::to_string(history->evicted_count());
@@ -526,9 +637,6 @@ void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation
     const int composer_top = conversation ? std::max(chat_top, rows - (rows >= 7 ? 4 : 1)) : rows;
     const int chat_height = std::max(0, composer_top - chat_top);
     auto content = rendered_page_rows(page, cols);
-    if (!unicode && page == TuiPage::metrics) {
-        content = {"Metriques indisponibles - MetricCollector non integre"};
-    }
     auto& offset = conversation ? scroll_offset_ : page_scroll_offsets_[static_cast<std::size_t>(page)];
     const bool follows = conversation ? follow_bottom_ : page_follows_bottom_[static_cast<std::size_t>(page)];
     if (follows) offset = 0;

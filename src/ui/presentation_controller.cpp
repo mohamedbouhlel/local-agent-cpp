@@ -2,9 +2,55 @@
 #include "ui/terminal_text_sanitizer.hpp"
 
 #include <iostream>
+#include <iomanip>
+#include <sstream>
 #include <stdexcept>
 
 namespace agent::ui {
+namespace {
+
+std::string format_duration(std::chrono::steady_clock::duration duration)
+{
+    std::ostringstream output;
+    output << std::fixed << std::setprecision(3)
+           << std::chrono::duration<double, std::milli>(duration).count() << " ms";
+    return output.str();
+}
+
+std::string optional_duration(const std::optional<std::chrono::steady_clock::duration>& duration)
+{
+    return duration ? format_duration(*duration) : "unavailable";
+}
+
+std::string exact_count(std::uint64_t value, bool overflowed)
+{
+    return overflowed ? "unavailable" : std::to_string(value);
+}
+
+std::string metrics_summary(const TurnMetrics& metrics)
+{
+    std::ostringstream output;
+    output << "Turn metrics (technical outcome: ";
+    if (metrics.outcome) output << (*metrics.outcome == TurnOutcome::completed ? "completed" : "failed");
+    else output << "unavailable";
+    output << "): duration " << optional_duration(metrics.duration)
+           << "; HTTP requests " << exact_count(metrics.http_requests_started, metrics.counter_overflowed)
+           << "; tools " << exact_count(metrics.tools_started, metrics.counter_overflowed) << " ("
+           << exact_count(metrics.successful_tools(), metrics.counter_overflowed) << " succeeded, "
+           << exact_count(metrics.failed_tools(), metrics.counter_overflowed)
+           << " failed); text fragments " << exact_count(metrics.text_fragments, metrics.counter_overflowed)
+           << "; first delta " << optional_duration(metrics.first_delta_latency)
+           << "; response body bytes received ";
+    if (metrics.response_body_bytes_received()) output << *metrics.response_body_bytes_received();
+    else output << "unavailable";
+    output << ".";
+    if (!metrics.event_details_complete) output << " Event details incomplete; observed counts are partial.";
+    if (metrics.detail_history_truncated) output << " Per-request/tool detail history is truncated.";
+    if (metrics.counter_overflowed) output << " One or more counters overflowed; exact value unavailable.";
+    return output.str();
+}
+
+} // namespace
 
 PresentationController::PresentationController(std::unique_ptr<ConsoleRenderer> renderer)
     : renderer_(std::move(renderer))
@@ -21,6 +67,9 @@ void PresentationController::on_event(const AgentEvent& event)
         throw std::runtime_error("presentation rejected agent event: " + applied.detail);
     }
 
+    const bool first_text_delta = event.type() == EventType::TextDelta && metrics_.snapshot().text_fragments == 0;
+    metrics_.consume(event);
+
     switch (event.type()) {
     case EventType::RequestStarted:
         turn_had_text_ = false;
@@ -34,6 +83,12 @@ void PresentationController::on_event(const AgentEvent& event)
     }
     case EventType::TextDelta:
         turn_had_text_ = true;
+        if (first_text_delta) {
+            renderer_->render_status(StatusKind::model,
+                                     "Receiving model stream; first delta observed after "
+                                         + optional_duration(metrics_.snapshot().first_delta_latency)
+                                         + " (not server TTFT).");
+        }
         renderer_->render_text(std::get<TextDelta>(event.payload).text);
         break;
     case EventType::ToolAuthorizationRequested:
@@ -56,19 +111,25 @@ void PresentationController::on_event(const AgentEvent& event)
     }
     case EventType::ToolSucceeded: {
         const auto& payload = std::get<ToolSucceeded>(event.payload);
-        renderer_->render_status(StatusKind::success, "Tool completed: " + payload.name);
+        renderer_->render_status(StatusKind::success,
+                                 "Tool completed: " + payload.name + " in " + format_duration(payload.duration));
         break;
     }
     case EventType::ToolFailed: {
         const auto& payload = std::get<ToolFailed>(event.payload);
-        renderer_->render_status(StatusKind::error, "Tool failed: " + payload.name);
+        renderer_->render_status(StatusKind::error,
+                                 "Tool failed: " + payload.name + " after " + format_duration(payload.duration));
         break;
     }
     case EventType::HttpRequestFinished: {
         const auto& payload = std::get<HttpRequestFinished>(event.payload);
-        if (payload.outcome != HttpRequestOutcome::completed) {
-            renderer_->render_status(StatusKind::warning, "HTTP transport ended without a complete response.");
-        }
+        const auto request_id = event.metadata.request_id
+            ? std::to_string(event.metadata.request_id->value) : std::string("unknown");
+        const auto kind = payload.outcome == HttpRequestOutcome::completed ? StatusKind::info : StatusKind::warning;
+        renderer_->render_status(kind,
+                                 "HTTP request " + request_id + " finished in " + format_duration(payload.duration)
+                                     + "; response body bytes received: " + std::to_string(payload.response_bytes)
+                                     + ". Transport completion does not prove LLM stream completeness.");
         break;
     }
     case EventType::RequestFailed:
@@ -82,6 +143,8 @@ void PresentationController::on_event(const AgentEvent& event)
             renderer_->render_status(StatusKind::success,
                                      "Turn completed technically; task success is not independently verified.");
         }
+        renderer_->render_status(payload.outcome == TurnOutcome::completed ? StatusKind::secondary : StatusKind::warning,
+                                 metrics_summary(metrics_.snapshot()));
         break;
     }
     }
@@ -90,6 +153,7 @@ void PresentationController::on_event(const AgentEvent& event)
 void PresentationController::on_observer_failure() noexcept
 {
     observer_failed_ = true;
+    metrics_.mark_event_details_incomplete();
     try {
         renderer_->render_status(StatusKind::error, "UI observer disabled after a presentation failure.");
     } catch (...) {

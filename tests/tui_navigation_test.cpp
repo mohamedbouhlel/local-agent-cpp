@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <algorithm>
 #include <clocale>
 #include <filesystem>
 #include <poll.h>
@@ -89,8 +90,10 @@ TEST(tui4a, every_page_has_a_compact_visible_projection)
         CHECK(!rows.empty());
         CHECK(std::string(agent::ui::TuiNavigation::page_name(static_cast<agent::ui::TuiPage>(page))).size() > 0);
     }
-    CHECK(view.rendered_page_rows(agent::ui::TuiPage::metrics, 120).front()
-          == "Métriques indisponibles — MetricCollector non intégré");
+    const auto metrics = view.rendered_page_rows(agent::ui::TuiPage::metrics, 120);
+    CHECK(std::any_of(metrics.begin(), metrics.end(), [](const std::string& row) {
+        return row.find("Unavailable: no turn metrics observed yet.") != std::string::npos;
+    }));
 }
 
 TEST(tui4a, configuration_projection_redacts_endpoint_credentials_and_api_key)
@@ -291,6 +294,10 @@ TEST(tui4a, pty_navigation_preserves_draft_and_receives_reply_off_conversation)
     send("\033[20~"); // submit exactly once
     send("\033OQ"); // continue navigating while Agent::send is active
     read_for(output, std::chrono::milliseconds(750));
+    send("\033OR"); // F3 Metrics while streaming
+    read_for(output, std::chrono::milliseconds(100));
+    CHECK(output.find("Text fragments:") != std::string::npos);
+    send("\033OP"); // return to Conversation without affecting the active turn
     size.ws_row = 4; size.ws_col = 10;
     static_cast<void>(::ioctl(master, TIOCSWINSZ, &size));
     static_cast<void>(::kill(child, SIGWINCH));

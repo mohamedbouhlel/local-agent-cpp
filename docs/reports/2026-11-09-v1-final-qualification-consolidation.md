@@ -1,5 +1,15 @@
 # Consolidation documentaire et qualification finale v1.0
 
+> **Complément du 2026-11-10 :** la recette physique Debian 13/Ghostty au SHA
+> `78aab200af4709307dc2b0fffe69306d2a63f1d5` a depuis validé le composeur
+> multiligne et les scénarios d'approbation/refus décrits comme non validés
+> ci-dessous. Les résultats initiaux restent conservés comme photographie
+> datée au SHA `81964c`/`617e9dd`; consulter le [rapport de qualification
+> physique](2026-11-10-lofiterm-v1-physical-qualification.md) pour les preuves
+> plus récentes et leur attribution au mainteneur. Ce complément ne transforme
+> pas les assertions historiques 8 104 (DEV) en résultat de la machine de
+> recette, qui a obtenu 8 102.
+
 ## Révision examinée
 
 - Dépôt : `mohamedbouhlel/local-agent-cpp`.

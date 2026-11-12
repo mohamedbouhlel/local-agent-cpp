@@ -28,6 +28,8 @@ struct HttpRequestMetric {
     std::optional<std::chrono::steady_clock::duration> duration;
     std::optional<std::uint64_t> response_body_bytes;
     std::optional<HttpRequestOutcome> outcome;
+    std::optional<std::uint64_t> sse_data_frames;
+    std::optional<std::uint64_t> reasoning_frames;
 };
 
 struct ToolMetric {
@@ -50,6 +52,8 @@ struct TurnMetrics {
     std::uint64_t tools_succeeded = 0;
     std::uint64_t tools_failed = 0;
     std::uint64_t text_fragments = 0;
+    std::uint64_t sse_data_frames = 0;
+    std::uint64_t reasoning_frames = 0;
     std::optional<std::uint64_t> response_body_bytes;
 
     bool event_details_complete = true;

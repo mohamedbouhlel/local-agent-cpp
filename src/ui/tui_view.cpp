@@ -771,6 +771,11 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns,
         source.push_back("Response body bytes received: "
                          + (metrics_.response_body_bytes_received()
                                 ? std::to_string(*metrics_.response_body_bytes_received()) : "unavailable"));
+        source.push_back("SSE data frames: " + exact_count_or_unavailable(metrics_.sse_data_frames,
+                                                                            metrics_.counter_overflowed));
+        source.push_back("Frames containing reasoning metadata: "
+                         + exact_count_or_unavailable(metrics_.reasoning_frames, metrics_.counter_overflowed)
+                         + " (count only; reasoning text is not retained)");
         source.push_back("Tool calls started: " + exact_count_or_unavailable(metrics_.tools_started,
                                                                                metrics_.counter_overflowed)
                          + "; succeeded: " + exact_count_or_unavailable(metrics_.successful_tools(),
@@ -790,6 +795,8 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns,
                 + http_outcome(request.outcome) + ", duration " + metric_duration(request.duration)
                 + ", body bytes ";
             row += request.response_body_bytes ? std::to_string(*request.response_body_bytes) : "unavailable";
+            row += ", SSE data frames ";
+            row += request.sse_data_frames ? std::to_string(*request.sse_data_frames) : "unavailable";
             source.push_back(std::move(row));
         }
         for (const auto& tool : metrics_.tools) {
@@ -818,7 +825,9 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns,
         if (subsection_open && subsection == 0) {
             source.push_back("Model: " + sanitize_terminal_line(view_data_.model));
             source.push_back("Endpoint: " + sanitize_terminal_line(view_data_.endpoint_origin));
-            source.push_back("Timeout: " + std::to_string(view_data_.timeout_seconds) + " seconds");
+            source.push_back("Timeouts: connect " + std::to_string(view_data_.connect_timeout_seconds)
+                             + "s, idle " + std::to_string(view_data_.idle_timeout_seconds)
+                             + "s, total " + std::to_string(view_data_.total_timeout_seconds) + "s");
             source.push_back(std::string("API key: ") + (view_data_.api_key_configured ? "configured (value hidden)" : "not configured"));
             source.emplace_back("Workspace: unavailable in this view.");
         } else if (subsection_open && subsection == 1) {

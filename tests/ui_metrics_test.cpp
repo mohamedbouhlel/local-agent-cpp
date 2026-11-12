@@ -76,6 +76,24 @@ TEST(ui4, completed_turn_uses_observed_elapsed_and_first_delta)
     CHECK(metrics.response_body_bytes_received() == std::uint64_t(240));
 }
 
+TEST(ui4, SSE_frame_and_reasoning_counts_are_retained_without_text)
+{
+    agent::ui::MetricCollector collector;
+    const agent::ui::RequestId request_id{7};
+    collector.consume(make_event(1, 0ms, agent::ui::RequestStarted{}));
+    collector.consume(make_event(2, 1ms, agent::ui::HttpRequestStarted{1}, request_id));
+    collector.consume(make_event(3, 5ms,
+        agent::ui::HttpRequestFinished{4ms, 512, agent::ui::HttpRequestOutcome::completed, 9, 3, false}, request_id));
+    collector.consume(make_event(4, 6ms, agent::ui::TurnFinished{agent::ui::TurnOutcome::completed, 1, 0, 0}));
+    const auto& metrics = collector.snapshot();
+    CHECK_EQ(metrics.sse_data_frames, std::uint64_t(9));
+    CHECK_EQ(metrics.reasoning_frames, std::uint64_t(3));
+    CHECK_EQ(metrics.http_requests.size(), std::size_t(1));
+    CHECK(metrics.http_requests.front().sse_data_frames == std::uint64_t(9));
+    CHECK(metrics.http_requests.front().reasoning_frames == std::uint64_t(3));
+    CHECK(!metrics.counter_overflowed);
+}
+
 TEST(ui4, multiple_requests_and_tools_keep_individual_measures_and_recovery)
 {
     agent::ui::MetricCollector collector;

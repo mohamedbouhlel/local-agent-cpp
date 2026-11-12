@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tool_registry.hpp"
+#include "http_client.hpp"
 #include "ui/agent_event.hpp"
 
 #include <nlohmann/json.hpp>
@@ -23,6 +24,7 @@ struct AgentConfig {
     std::string model;
     std::string api_key;
     long timeout_seconds = 60;
+    std::optional<HttpTimeouts> http_timeouts;
 };
 
 // Erreur de protocole côté agent : flux LLM incomplet (pas de "[DONE]"), réponse

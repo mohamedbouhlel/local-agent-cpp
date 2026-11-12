@@ -9,6 +9,8 @@
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <limits>
+#include <algorithm>
 #include <exception>
 #include <stdexcept>
 #include <string>
@@ -291,6 +293,13 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
             const auto request_body = payload.dump();
             const RequestId request_id{next_request_id_++};
             std::uint64_t response_bytes = 0;
+            std::uint64_t sse_data_frames = 0;
+            std::uint64_t reasoning_frames = 0;
+            bool metric_counter_overflowed = false;
+            auto increment_saturated = [&metric_counter_overflowed](std::uint64_t& value) {
+                if (value == std::numeric_limits<std::uint64_t>::max()) metric_counter_overflowed = true;
+                else ++value;
+            };
 
             std::function<void(const std::string&)> on_text_delta = [&](const std::string& fragment) {
                 publish_event([&] { return EventPayload{TextDelta{fragment}}; }, turn_id, request_id);
@@ -305,8 +314,10 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
             };
 
             // Consomme un payload SSE déjà délimité.
-            auto consume = [&accumulator, &on_text_delta, &finish_reason, &saw_done, &malformed_event](
+            auto consume = [&accumulator, &on_text_delta, &finish_reason, &saw_done, &malformed_event,
+                            &sse_data_frames, &reasoning_frames, &increment_saturated](
                               const std::string& data) {
+                increment_saturated(sse_data_frames);
                 // "[DONE]" n'a pas de sens pour le parser SSE : on le reconnaît ici,
                 // côté OpenAI, et il constitue la preuve de complétude du flux.
                 if (data == "[DONE]") {
@@ -328,13 +339,28 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
                     return;
                 }
 
+                if (event.contains("choices") && event.at("choices").is_array() && !event.at("choices").empty()) {
+                    const auto& choice = event.at("choices").at(0);
+                    if (choice.contains("delta") && choice.at("delta").is_object()) {
+                        const auto& delta = choice.at("delta");
+                        if ((delta.contains("reasoning_content") && !delta.at("reasoning_content").is_null())
+                            || (delta.contains("reasoning") && !delta.at("reasoning").is_null()))
+                            increment_saturated(reasoning_frames);
+                    }
+                }
+
                 collect_finish_reason(event, finish_reason);
                 apply_stream_delta(accumulator, event, on_text_delta);
             };
 
-            std::function<void(const std::string&)> on_chunk = [&parser, &consume, &response_bytes](
+            std::function<void(const std::string&)> on_chunk = [&parser, &consume, &response_bytes,
+                                                                 &metric_counter_overflowed](
                                                                     const std::string& chunk) {
-                response_bytes += static_cast<std::uint64_t>(chunk.size());
+                const auto bytes = static_cast<std::uint64_t>(chunk.size());
+                if (bytes > std::numeric_limits<std::uint64_t>::max() - response_bytes) {
+                    response_bytes = std::numeric_limits<std::uint64_t>::max();
+                    metric_counter_overflowed = true;
+                } else response_bytes += bytes;
                 for (const auto& data : parser.feed(chunk)) {
                     consume(data);
                 }
@@ -346,6 +372,13 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
                           turn_id,
                           request_id);
             const auto request_started_at = std::chrono::steady_clock::now();
+            const auto timeouts = config_.http_timeouts.value_or(HttpTimeouts{
+                std::min<long>(config_.timeout_seconds, 10), config_.timeout_seconds, config_.timeout_seconds});
+            auto publish_http_finished = [&](agent::ui::HttpRequestOutcome outcome) {
+                publish_event([&] { return EventPayload{HttpRequestFinished{std::chrono::steady_clock::now() - request_started_at,
+                    response_bytes, outcome, sse_data_frames, reasoning_frames, metric_counter_overflowed}}; },
+                    turn_id, request_id);
+            };
             try {
                 // Invariant : le message assistant partiel reste hors historique
                 // si le transport ou un callback legacy échoue.
@@ -353,35 +386,26 @@ std::string Agent::send(const std::string& input, const AgentCallbacks& callback
                     config_.base_url,
                     headers,
                     request_body,
-                    config_.timeout_seconds,
+                    timeouts,
                     on_chunk);
             } catch (...) {
-                publish_event(
-                    [&] {
-                        return EventPayload{HttpRequestFinished{
-                            std::chrono::steady_clock::now() - request_started_at,
-                            response_bytes,
-                            legacy_callback_failed ? HttpRequestOutcome::legacy_callback_aborted
-                                                   : HttpRequestOutcome::failed}};
-                    },
-                    turn_id,
-                    request_id);
+                publish_http_finished(legacy_callback_failed ? HttpRequestOutcome::legacy_callback_aborted
+                                                               : HttpRequestOutcome::failed);
                 throw;
             }
-            publish_event(
-                [&] {
-                    return EventPayload{HttpRequestFinished{std::chrono::steady_clock::now() - request_started_at,
-                                                            response_bytes,
-                                                            HttpRequestOutcome::completed}};
-                },
-                turn_id,
-                request_id);
 
             // Une trame finale non terminée par une ligne vide ne doit pas être
             // perdue silencieusement.
-            for (const auto& data : parser.flush()) {
-                consume(data);
+            try {
+                for (const auto& data : parser.flush()) {
+                    consume(data);
+                }
+            } catch (...) {
+                publish_http_finished(legacy_callback_failed ? HttpRequestOutcome::legacy_callback_aborted
+                                                               : HttpRequestOutcome::failed);
+                throw;
             }
+            publish_http_finished(HttpRequestOutcome::completed);
 
             if (malformed_event) {
                 throw AgentError("malformed JSON in model stream event");

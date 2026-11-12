@@ -13,6 +13,7 @@ add_executable(agent_tests
   filesystem_sandbox_test.cpp
   http_client_test.cpp
   agent_events_test.cpp
+  runtime_config_test.cpp
   ui_test.cpp
   ui_renderer_test.cpp
   ui_metrics_test.cpp
@@ -50,3 +51,6 @@ endforeach()
 # 31.58 s on the qualification host, so keep the repetition count and allow
 # bounded scheduler variance instead of timing out a passing group at 30 s.
 set_tests_properties(tui3 PROPERTIES TIMEOUT 60)
+# The HTTP suite includes an intentional 62-second active SSE stream to prove
+# it can exceed the former 60-second total ceiling; its explicit total cap is 70s.
+set_tests_properties(http PROPERTIES TIMEOUT 80)

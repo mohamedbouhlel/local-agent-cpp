@@ -73,8 +73,11 @@ directement (voir Architecture) sans relister les .cpp.
   http://localhost:8080/v1/chat/completions)
 - LLM_MODEL    : nom du modèle chargé côté serveur (défaut : local-model)
 - LLM_API_KEY  : optionnelle, pour serveurs locaux qui l'exigent
-- LLM_TIMEOUT_SECONDS : optionnelle, timeout des requêtes HTTP en secondes
-  (défaut : 60)
+- LLM_CONNECT_TIMEOUT_SECONDS : délai de connexion (10 s par défaut).
+- LLM_IDLE_TIMEOUT_SECONDS : délai sans données de réponse (60 s par défaut).
+- LLM_TOTAL_TIMEOUT_SECONDS : durée totale maximale (300 s par défaut).
+- LLM_TIMEOUT_SECONDS : compatibilité, fallback d'inactivité pour l'exécutable;
+  les anciens clients AgentConfig conservent le timeout total historique.
 
 ## Credentials
 - Fichier .env (non commité) chargé dans le shell avant de lancer l'agent
@@ -144,10 +147,10 @@ directement (voir Architecture) sans relister les .cpp.
   du même compte reste hors de la barrière Landlock et peut modifier le
   workspace. L'opération ne garantit pas la durabilité après crash (pas de
   `fsync`). Voir USAGE.md.
-- Timeouts (Phase R0) : `CURLOPT_TIMEOUT` (total) est complété par
-  `CURLOPT_CONNECTTIMEOUT` (établissement de connexion, borné à `min(timeout,
-  10 s)`). Un timeout (`CURLE_OPERATION_TIMEDOUT`) produit un message distinct
-  (« HTTP POST timed out after Ns »), séparé des autres échecs curl.
+- Timeouts HTTP : connexion, inactivité de réponse et durée totale sont
+  configurées séparément. Les données d'en-tête ou de corps relancent le délai
+  d'inactivité; la durée totale reste une borne dure. La complétude SSE est
+  contrôlée indépendamment du succès du transport.
 - Historique de conversation : limite de référence de 20 messages (constante
   `max_history_messages`). La troncature retire les tours complets les plus
   anciens, sans résumé. Le dernier tour peut dépasser le plafond : voir

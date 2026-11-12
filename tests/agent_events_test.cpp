@@ -4,6 +4,7 @@
 #include "test_support.hpp"
 #include "tool_registry.hpp"
 #include "ui/presentation_state.hpp"
+#include "ui/metrics.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -382,7 +383,11 @@ TEST(agent, malformed_stream_still_obeys_configured_http_timeout)
     server.enqueue(response(text_delta("recovered") + done()));
     ToolRegistry tools;
     auto observer = std::make_shared<RecordingObserver>();
-    Agent agent(tools, config_for(server, 1), observer);
+    auto config = config_for(server, 2);
+    // Keep the idle bound above the total bound so this test verifies total
+    // timeout deterministically instead of racing two equal one-second limits.
+    config.http_timeouts = HttpTimeouts{1, 5, 2};
+    Agent agent(tools, std::move(config), observer);
 
     std::string error_message;
     try {
@@ -390,7 +395,7 @@ TEST(agent, malformed_stream_still_obeys_configured_http_timeout)
     } catch (const HttpError& error) {
         error_message = error.what();
     }
-    CHECK(error_message.find("timed out after 1s") != std::string::npos);
+    CHECK(error_message.find("total timeout after 2s") != std::string::npos);
     CHECK(std::get<agent::ui::HttpRequestFinished>(observer->events[2].payload).outcome
           == agent::ui::HttpRequestOutcome::failed);
     CHECK(std::get<agent::ui::RequestFailed>(observer->events[observer->events.size() - 2].payload).category
@@ -471,6 +476,53 @@ TEST(agent, http_error_emits_one_failed_request_and_turn)
     CHECK(std::get<agent::ui::RequestFailed>(observer->events[3].payload).category
           == agent::ui::RequestFailureCategory::http);
     CHECK_EQ(count_type(observer->events, EventType::RequestFailed), std::size_t(1));
+    check_single_terminal_sequence(observer->events);
+}
+
+TEST(agent, reasoning_is_counted_but_never_exposed_and_sse_metrics_are_exact)
+{
+    MockHttpServer server;
+    const auto reasoning_one = sse({{"choices", nlohmann::json::array({
+        {{"index", 0}, {"delta", {{"reasoning_content", "PRIVATE_REASONING_SENTINEL"}}}}})}});
+    const auto reasoning_two = sse({{"choices", nlohmann::json::array({
+        {{"index", 0}, {"delta", {{"reasoning", "SECOND_PRIVATE_SENTINEL"}}}}})}});
+    const auto visible = text_delta("visible answer", "stop");
+    const auto body = reasoning_one + reasoning_two + visible + done();
+    server.enqueue(response(body));
+    ToolRegistry tools;
+    auto observer = std::make_shared<RecordingObserver>();
+    Agent agent(tools, config_for(server), observer);
+    std::string streamed;
+    AgentCallbacks callbacks;
+    callbacks.on_text_delta = [&streamed](const std::string& value) { streamed += value; };
+
+    CHECK_EQ(agent.send("question", callbacks), std::string("visible answer"));
+    CHECK_EQ(streamed, std::string("visible answer"));
+    const auto finished = std::find_if(observer->events.begin(), observer->events.end(), [](const auto& event) {
+        return event.type() == EventType::HttpRequestFinished;
+    });
+    CHECK(finished != observer->events.end());
+    if (finished != observer->events.end()) {
+        const auto& metrics = std::get<agent::ui::HttpRequestFinished>(finished->payload);
+        CHECK_EQ(metrics.response_bytes, static_cast<std::uint64_t>(body.size()));
+        CHECK_EQ(metrics.sse_data_frames, std::uint64_t(4));
+        CHECK_EQ(metrics.reasoning_frames, std::uint64_t(2));
+        CHECK(!metrics.counter_overflowed);
+    }
+    for (const auto& event : observer->events) {
+        if (const auto* delta = std::get_if<agent::ui::TextDelta>(&event.payload)) {
+            CHECK(delta->text.find("PRIVATE_REASONING") == std::string::npos);
+            CHECK(delta->text.find("SECOND_PRIVATE") == std::string::npos);
+        }
+    }
+    CHECK_EQ(count_type(observer->events, EventType::TextDelta), std::size_t(1));
+    agent::ui::MetricCollector collector;
+    for (const auto& event : observer->events) collector.consume(event);
+    CHECK_EQ(collector.snapshot().text_fragments, std::uint64_t(1));
+    CHECK_EQ(collector.snapshot().sse_data_frames, std::uint64_t(4));
+    CHECK_EQ(collector.snapshot().reasoning_frames, std::uint64_t(2));
+    CHECK(std::get<agent::ui::TurnFinished>(observer->events.back().payload).outcome
+          == agent::ui::TurnOutcome::completed);
     check_single_terminal_sequence(observer->events);
 }
 
@@ -617,6 +669,38 @@ TEST(agent, legacy_stream_callback_exception_keeps_type_and_message)
         CHECK(false);
     }
     CHECK(caught_original_type);
+    CHECK(std::get<agent::ui::HttpRequestFinished>(observer->events[3].payload).outcome
+          == agent::ui::HttpRequestOutcome::legacy_callback_aborted);
+    CHECK(std::get<agent::ui::RequestFailed>(observer->events[4].payload).category
+          == agent::ui::RequestFailureCategory::legacy_callback);
+    CHECK(std::get<agent::ui::TurnFinished>(observer->events[5].payload).outcome == agent::ui::TurnOutcome::failed);
+    check_single_terminal_sequence(observer->events);
+}
+
+TEST(agent, legacy_callback_exception_from_final_sse_flush_still_finishes_http_event)
+{
+    MockHttpServer server;
+    auto body = text_delta("last piece");
+    body.resize(body.size() - 2); // Final data frame has no blank-line terminator; delivered by flush().
+    server.enqueue(response(body));
+    ToolRegistry tools;
+    auto observer = std::make_shared<RecordingObserver>();
+    Agent agent(tools, config_for(server), observer);
+    AgentCallbacks callbacks;
+    callbacks.on_text_delta = [](const std::string&) { throw LegacyCallbackError("flush marker"); };
+
+    bool caught_original_type = false;
+    try {
+        (void)agent.send("question", callbacks);
+    } catch (const LegacyCallbackError& error) {
+        caught_original_type = true;
+        CHECK_EQ(std::string(error.what()), std::string("flush marker"));
+    } catch (...) {
+        CHECK(false);
+    }
+    CHECK(caught_original_type);
+    CHECK_EQ(count_type(observer->events, EventType::HttpRequestStarted), std::size_t(1));
+    CHECK_EQ(count_type(observer->events, EventType::HttpRequestFinished), std::size_t(1));
     CHECK(std::get<agent::ui::HttpRequestFinished>(observer->events[3].payload).outcome
           == agent::ui::HttpRequestOutcome::legacy_callback_aborted);
     CHECK(std::get<agent::ui::RequestFailed>(observer->events[4].payload).category

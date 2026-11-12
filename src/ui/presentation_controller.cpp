@@ -129,6 +129,8 @@ void PresentationController::on_event(const AgentEvent& event)
         renderer_->render_status(kind,
                                  "HTTP request " + request_id + " finished in " + format_duration(payload.duration)
                                      + "; response body bytes received: " + std::to_string(payload.response_bytes)
+                                     + "; SSE data frames: " + std::to_string(payload.sse_data_frames)
+                                     + "; reasoning-bearing frames: " + std::to_string(payload.reasoning_frames)
                                      + ". Transport completion does not prove LLM stream completeness.");
         break;
     }

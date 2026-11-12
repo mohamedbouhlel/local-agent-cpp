@@ -2,6 +2,7 @@
 #include "filesystem_sandbox.hpp"
 #include "http_client.hpp"
 #include "prompt_reader.hpp"
+#include "runtime_config.hpp"
 #include "tool_registry.hpp"
 #include "ui/console_renderer.hpp"
 #include "ui/console_session.hpp"
@@ -13,6 +14,7 @@
 #include "workspace_tools.hpp"
 
 #include <cstdlib>
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -32,28 +34,26 @@ std::string getenv_or_default(const char* name, std::string default_value)
     return value;
 }
 
-long timeout_from_env()
+long positive_seconds_from_env(const char* name, long fallback)
 {
-    const auto value = getenv_or_default("LLM_TIMEOUT_SECONDS", "60");
-    try {
-        const auto timeout = std::stol(value);
-        if (timeout <= 0) {
-            throw std::invalid_argument("timeout must be positive");
-        }
-        return timeout;
-    } catch (const std::exception&) {
-        std::cerr << "Invalid LLM_TIMEOUT_SECONDS value, using 60 seconds.\n";
-        return 60;
-    }
+    const auto value = getenv_or_default(name, std::to_string(fallback));
+    if (const auto timeout = agent::config::parse_positive_seconds(value)) return *timeout;
+    std::cerr << "Invalid " << name << " value, using " << fallback << " seconds.\n";
+    return fallback;
 }
 
 AgentConfig load_config()
 {
+    const auto legacy = positive_seconds_from_env("LLM_TIMEOUT_SECONDS", 60);
+    const auto connect = positive_seconds_from_env("LLM_CONNECT_TIMEOUT_SECONDS", std::min<long>(legacy, 10));
+    const auto idle = positive_seconds_from_env("LLM_IDLE_TIMEOUT_SECONDS", legacy);
+    const auto total = positive_seconds_from_env("LLM_TOTAL_TIMEOUT_SECONDS", 300);
     return {
         getenv_or_default("LLM_BASE_URL", "http://localhost:8080/v1/chat/completions"),
         getenv_or_default("LLM_MODEL", "local-model"),
         getenv_or_default("LLM_API_KEY", ""),
-        timeout_from_env(),
+        legacy,
+        HttpTimeouts{connect, idle, total},
     };
 }
 

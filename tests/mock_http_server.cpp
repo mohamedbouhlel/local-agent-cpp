@@ -275,6 +275,8 @@ void MockHttpServer::handle_connection(int connection)
         return;
     }
 
+    if (response.initial_delay_us > 0) ::usleep(static_cast<useconds_t>(response.initial_delay_us));
+
     if (response.piece_size == 0) {
         write_all(connection, response.body);
         return;

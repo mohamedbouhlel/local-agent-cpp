@@ -94,6 +94,9 @@ struct HttpRequestFinished {
     std::chrono::steady_clock::duration duration{};
     std::uint64_t response_bytes = 0;
     HttpRequestOutcome outcome = HttpRequestOutcome::completed;
+    std::uint64_t sse_data_frames = 0;
+    std::uint64_t reasoning_frames = 0;
+    bool counter_overflowed = false;
 };
 
 enum class RequestFailureCategory {

@@ -8,6 +8,8 @@
 #include <pty.h>
 #include <fcntl.h>
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <iostream>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -20,6 +22,7 @@
 #include <poll.h>
 #include <optional>
 #include <regex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -128,11 +131,245 @@ std::string sse_write_call(std::string id, std::string path, std::string content
     return "data: " + event.dump() + "\n\ndata: [DONE]\n\n";
 }
 
+class PtyScreen final {
+public:
+    PtyScreen(int rows = 24, int columns = 80)
+        : cells_(static_cast<std::size_t>(rows), std::string(static_cast<std::size_t>(columns), ' ')),
+          rows_(rows), columns_(columns) {}
+
+    void feed(std::string_view bytes)
+    {
+        pending_.append(bytes);
+        std::size_t i = 0;
+        while (i < pending_.size()) {
+            const std::string_view input(pending_);
+            const auto value = static_cast<unsigned char>(input[i]);
+            if (value == 0x1b) {
+                if (i + 1 >= input.size()) break;
+                if (input[i + 1] == '[') {
+                    const auto begin = i + 2;
+                    auto end = begin;
+                    while (end < input.size()) {
+                        const auto c = static_cast<unsigned char>(input[end]);
+                        if (c >= 0x40 && c <= 0x7e) break;
+                        ++end;
+                    }
+                    if (end == input.size()) break;
+                    const char final = input[end];
+                    const auto parameters = input.substr(begin, end - begin);
+                    remember_control(parameters, final);
+                    apply_csi(parameters, final);
+                    i = end + 1;
+                    continue;
+                }
+                if (input[i + 1] == ']') {
+                    const auto sequence_start = i;
+                    i += 2;
+                    bool terminated = false;
+                    while (i < input.size()) {
+                        if (input[i] == '\a') { ++i; terminated = true; break; }
+                        if (input[i] == '\x1b' && i + 1 < input.size() && input[i + 1] == '\\') {
+                            i += 2;
+                            terminated = true;
+                            break;
+                        }
+                        ++i;
+                    }
+                    if (!terminated) { i = sequence_start; break; }
+                    continue;
+                }
+                // ISO-2022 charset designation, e.g. ESC ( B or ESC ) 0.
+                // Do not turn the final designator into screen text.
+                if (input[i + 1] == '(' || input[i + 1] == ')') {
+                    if (i + 2 >= input.size()) break;
+                    i += 3;
+                    continue;
+                }
+                // Other two-byte ESC controls (including cursor save/restore).
+                i += 2;
+                continue;
+            }
+            if (value == '\r') column_ = 0;
+            else if (value == '\n') line_feed();
+            else if (value == '\b') column_ = std::max(0, column_ - 1);
+            else if (value == '\t') column_ = std::min(columns_ - 1, (column_ / 8 + 1) * 8);
+            else if (value >= 0x20 && value != 0x7f) {
+                ++printable_bytes_seen_;
+                put(static_cast<char>(value));
+            }
+            ++i;
+        }
+        pending_.erase(0, i);
+    }
+
+    std::string row(int index) const
+    {
+        if (index < 0 || index >= rows_) return {};
+        auto result = cells_[static_cast<std::size_t>(index)];
+        while (!result.empty() && result.back() == ' ') result.pop_back();
+        return result;
+    }
+
+    bool approval_header_visible() const
+    {
+        return std::any_of(cells_.begin(), cells_.end(), [](const std::string& line) {
+            return line.find("WRITE APPROVAL") != std::string::npos;
+        });
+    }
+
+    bool input_prompt_visible() const { return cells_[static_cast<std::size_t>(rows_ - 1)].starts_with("Input: "); }
+    bool input_is_no_visible() const { return row(rows_ - 1) == "Input: no"; }
+    std::size_t printable_bytes_seen() const { return printable_bytes_seen_; }
+    std::string safe_input_row() const
+    {
+        const auto line = row(rows_ - 1);
+        if (!line.starts_with("Input: ")) return "<Input prompt not visible>";
+        // The test's expected input is fixed. Never dump the screen, challenge,
+        // path, content, or arbitrary model output on a failing test.
+        const auto value = line.substr(7);
+        if (value == "no") return "Input: no";
+        std::string mask;
+        for (const char c : value) {
+            mask.push_back(
+                c == 'n' || c == 'o' ? c : c == ' ' ? '_' : '?'
+            );
+        }
+        return "Input: <" + std::to_string(value.size())
+            + " chars; mask=" + mask + ">";
+    }
+
+    std::string recent_controls() const
+    {
+        std::ostringstream out;
+        for (const auto& control : controls_) out << control << ' ';
+        return out.str();
+    }
+
+    std::string safe_screen_summary() const
+    {
+        std::ostringstream out;
+        for (int y = 0; y < rows_; ++y) {
+            const auto line = row(y);
+            if (line.find("WRITE APPROVAL") != std::string::npos) out << " header_row=" << y;
+            if (line.starts_with("Input: ")) out << " input_row=" << y << " input_chars=" << line.size() - 7;
+            if (line.starts_with("Confirm: yes ")) out << " challenge_row=" << y;
+        }
+        out << " cursor=" << row_ << ',' << column_;
+        return out.str();
+    }
+
+private:
+    static int parameter(std::string_view text, std::size_t index, int fallback)
+    {
+        if (!text.empty() && (text.front() == '?' || text.front() == '>')) text.remove_prefix(1);
+        std::size_t begin = 0;
+        for (std::size_t current = 0; current < index; ++current) {
+            const auto separator = text.find(';', begin);
+            if (separator == std::string_view::npos) return fallback;
+            begin = separator + 1;
+        }
+        const auto end = text.find(';', begin);
+        const auto part = text.substr(begin, end == std::string_view::npos ? text.size() - begin : end - begin);
+        if (part.empty()) return fallback;
+        int value = 0;
+        for (const char c : part) {
+            if (c < '0' || c > '9') return fallback;
+            value = value * 10 + (c - '0');
+        }
+        return value;
+    }
+
+    void remember_control(std::string_view parameters, char final)
+    {
+        std::string item = "CSI ";
+        for (const char c : parameters) {
+            if ((c >= '0' && c <= '9') || c == ';' || c == '?' || c == '>') item.push_back(c);
+        }
+        item.push_back(final);
+        controls_.push_back(std::move(item));
+        if (controls_.size() > 24) controls_.erase(controls_.begin());
+    }
+
+    void apply_csi(std::string_view params, char final)
+    {
+        const int first = parameter(params, 0, 1);
+        const int second = parameter(params, 1, 1);
+        switch (final) {
+        case 'H': case 'f': row_ = std::clamp(first - 1, 0, rows_ - 1); column_ = std::clamp(second - 1, 0, columns_ - 1); break;
+        case 'A': row_ = std::max(0, row_ - first); break;
+        case 'B': row_ = std::min(rows_ - 1, row_ + first); break;
+        case 'C': column_ = std::min(columns_ - 1, column_ + first); break;
+        case 'D': column_ = std::max(0, column_ - first); break;
+        case 'E': row_ = std::min(rows_ - 1, row_ + first); column_ = 0; break;
+        case 'F': row_ = std::max(0, row_ - first); column_ = 0; break;
+        case 'G': column_ = std::clamp(first - 1, 0, columns_ - 1); break;
+        case 'd': row_ = std::clamp(first - 1, 0, rows_ - 1); break;
+        case 'J': erase_display(parameter(params, 0, 0)); break;
+        case 'K': erase_line(parameter(params, 0, 0)); break;
+        case 'X': erase_cells(first); break;
+        case 'm': case 'h': case 'l': case 'r': case 's': case 'u': break;
+        default: break;
+        }
+    }
+
+    void put(char c)
+    {
+        if (column_ >= columns_) { column_ = 0; line_feed(); }
+        cells_[static_cast<std::size_t>(row_)][static_cast<std::size_t>(column_)] = c;
+        ++column_;
+    }
+
+    void line_feed()
+    {
+        if (row_ + 1 < rows_) { ++row_; return; }
+        std::rotate(cells_.begin(), cells_.begin() + 1, cells_.end());
+        cells_.back().assign(static_cast<std::size_t>(columns_), ' ');
+    }
+
+    void erase_line(int mode)
+    {
+        int begin = mode == 1 ? 0 : column_;
+        int end = mode == 0 ? columns_ : mode == 1 ? column_ + 1 : columns_;
+        for (int x = begin; x < end; ++x) cells_[static_cast<std::size_t>(row_)][static_cast<std::size_t>(x)] = ' ';
+    }
+
+    void erase_display(int mode)
+    {
+        if (mode == 2 || mode == 3) {
+            for (auto& line : cells_) line.assign(static_cast<std::size_t>(columns_), ' ');
+        } else if (mode == 0) {
+            erase_line(0);
+            for (int y = row_ + 1; y < rows_; ++y) cells_[static_cast<std::size_t>(y)].assign(static_cast<std::size_t>(columns_), ' ');
+        } else if (mode == 1) {
+            for (int y = 0; y < row_; ++y) cells_[static_cast<std::size_t>(y)].assign(static_cast<std::size_t>(columns_), ' ');
+            erase_line(1);
+        }
+    }
+
+    void erase_cells(int count)
+    {
+        for (int x = column_; x < std::min(columns_, column_ + count); ++x)
+            cells_[static_cast<std::size_t>(row_)][static_cast<std::size_t>(x)] = ' ';
+    }
+
+    std::vector<std::string> cells_;
+    std::string pending_;
+    int rows_;
+    int columns_;
+    int row_ = 0;
+    int column_ = 0;
+    std::size_t printable_bytes_seen_ = 0;
+    std::vector<std::string> controls_;
+};
+
 struct TuiApprovalRun {
     int status = 0;
     bool exited = false;
     bool dialog_seen = false;
+    bool approval_prompt_ready = false;
     bool dialog_kept_typed_no = false;
+    bool approval_prompt_emitted_before_n = false;
+    bool approval_prompt_emitted_before_o = false;
     bool no_tool_request_before_typed_no_enter = false;
     bool no_file_before_typed_no_enter = false;
     bool expiry_notice_seen = false;
@@ -140,6 +377,9 @@ struct TuiApprovalRun {
     bool mouse_reporting_restored = false;
     bool writer_error_seen = false;
     std::string output;
+    std::vector<std::pair<std::string, long long>> pty_timeline_ms;
+    std::string failure_screen_input_line;
+    std::string failure_recent_controls;
 };
 
 void capture_mouse_reporting_transitions(TuiApprovalRun& result)
@@ -160,47 +400,6 @@ std::string challenge_from_tui_output(const std::string& output)
     return std::regex_search(output, match, pattern) ? match[1].str() : std::string{};
 }
 
-std::string visible_pty_text(std::string_view output)
-{
-    std::string text;
-    for (std::size_t i = 0; i < output.size();) {
-        const auto byte = static_cast<unsigned char>(output[i]);
-        if (byte == 0x1b && i + 1 < output.size()) {
-            const auto next = static_cast<unsigned char>(output[i + 1]);
-            if (next == '[') {
-                i += 2;
-                while (i < output.size()) {
-                    const auto value = static_cast<unsigned char>(output[i++]);
-                    if (value >= 0x40 && value <= 0x7e) break;
-                }
-                continue;
-            }
-            if (next == ']') {
-                i += 2;
-                while (i < output.size()) {
-                    if (output[i] == '\a') { ++i; break; }
-                    if (output[i] == '\x1b' && i + 1 < output.size() && output[i + 1] == '\\') {
-                        i += 2;
-                        break;
-                    }
-                    ++i;
-                }
-                continue;
-            }
-            i += 2;
-            continue;
-        }
-        if (byte == '\r' || byte == '\n') {
-            text.push_back('\n');
-            ++i;
-            continue;
-        }
-        if (byte >= 0x20 && byte != 0x7f) text.push_back(static_cast<char>(byte));
-        ++i;
-    }
-    return text;
-}
-
 TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
                                       const std::filesystem::path& working_directory,
                                       std::string_view decision,
@@ -209,6 +408,13 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
     std::string_view prebuffered_key = {})
 {
     TuiApprovalRun result;
+    const auto started_at = std::chrono::steady_clock::now();
+    PtyScreen screen;
+    auto mark_event = [&](std::string label) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started_at).count();
+        result.pty_timeline_ms.emplace_back(std::move(label), elapsed);
+    };
     int master = -1;
     winsize size{}; size.ws_row = 24; size.ws_col = 80;
     const pid_t child = ::forkpty(&master, nullptr, nullptr, &size);
@@ -230,7 +436,11 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
             if (::poll(&descriptor, 1, 20) > 0 && (descriptor.revents & POLLIN)) {
                 char bytes[4096];
                 const auto count = ::read(master, bytes, sizeof(bytes));
-                if (count > 0) result.output.append(bytes, static_cast<std::size_t>(count));
+                if (count > 0) {
+                    const auto view = std::string_view(bytes, static_cast<std::size_t>(count));
+                    result.output.append(view);
+                    screen.feed(view);
+                }
             }
         }
     };
@@ -249,6 +459,7 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
         read_for(std::chrono::milliseconds(30));
     }
     result.dialog_seen = result.output.find("WRITE APPROVAL") != std::string::npos;
+    if (result.dialog_seen) mark_event("approval header captured");
     if (result.dialog_seen) {
         if (compact_terminal) {
             size.ws_row = 4; size.ws_col = 10;
@@ -285,28 +496,49 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
                 write(approval_confirmation(challenge) + "\n");
             }
         } else if (decision == "typed-no") {
-            write("n");
-            write("o");
-            // Synchronize on visible dialog text. ncurses may emit the label
-            // and changed input cells in separate updates with cursor controls
-            // between them, so compare the control-free text projection.
-            const auto rendered_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-            while (visible_pty_text(result.output).find("Input: no") == std::string::npos
-                   && std::chrono::steady_clock::now() < rendered_deadline) {
+            // The header can reach the PTY before ncurses has drawn the active
+            // input row. Synchronize on the modeled screen, not the byte stream.
+            while (!screen.input_prompt_visible()
+                   && std::chrono::steady_clock::now() < dialog_deadline) {
                 read_for(std::chrono::milliseconds(20));
             }
-            result.dialog_kept_typed_no = visible_pty_text(result.output).find("Input: no") != std::string::npos;
-            result.no_tool_request_before_typed_no_enter = server.received_bodies().size() == 1;
-            result.no_file_before_typed_no_enter =
-                !std::filesystem::exists(working_directory / "workspace/nested/denied.txt");
-            write("\n");
-            const auto followup_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
-            while (std::chrono::steady_clock::now() < followup_deadline
-                   && result.output.find("TUI_FOLLOWUP_DONE") == std::string::npos) {
-                read_for(std::chrono::milliseconds(20));
+            // The exact prompt label is emitted only by draw_approval. The PTY
+            // screen model then checks the edited value after ncurses redraws it.
+            result.approval_prompt_ready = screen.input_prompt_visible();
+            if (result.approval_prompt_ready) mark_event("approval Input prompt emitted");
+            if (result.approval_prompt_ready) {
+                result.approval_prompt_emitted_before_n = screen.input_prompt_visible();
+                mark_event("inject n");
+                write("n");
+                result.approval_prompt_emitted_before_o = screen.input_prompt_visible();
+                mark_event("inject o");
+                write("o");
+                // Evaluate modeled terminal cells, including cursor moves and erases.
+                const auto rendered_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                while (!screen.input_is_no_visible()
+                       && std::chrono::steady_clock::now() < rendered_deadline) {
+                    read_for(std::chrono::milliseconds(20));
+                }
+                result.dialog_kept_typed_no = screen.input_is_no_visible();
+                if (result.dialog_kept_typed_no) mark_event("Input line shows no before Enter");
+                result.failure_screen_input_line = screen.safe_input_row();
+                result.failure_recent_controls = screen.recent_controls();
+                result.no_tool_request_before_typed_no_enter = server.received_bodies().size() == 1;
+                result.no_file_before_typed_no_enter =
+                    !std::filesystem::exists(working_directory / "workspace/nested/denied.txt");
+                write("\n");
+                const auto followup_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+                while (std::chrono::steady_clock::now() < followup_deadline
+                       && result.output.find("TUI_FOLLOWUP_DONE") == std::string::npos) {
+                    read_for(std::chrono::milliseconds(20));
+                }
+                read_for(std::chrono::milliseconds(160));
+                write("\033[20~"); // Probe that approval characters were not left in the composer.
+            } else {
+                result.failure_screen_input_line = screen.safe_input_row();
+                result.failure_recent_controls = screen.recent_controls();
+                write("\033[21~"); // Fail closed if the approval prompt never became visible.
             }
-            read_for(std::chrono::milliseconds(160));
-            write("\033[20~"); // Probe that approval characters were not left in the composer.
         } else if (decision == "partial-close") {
             write("y");
             write("e");
@@ -357,6 +589,27 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
     }
     capture_mouse_reporting_transitions(result);
     result.writer_error_seen = result.output.find("Tool failed: write_file") != std::string::npos;
+    if (decision == "typed-no" && (!result.approval_prompt_ready
+                                    || !result.dialog_kept_typed_no
+                                    || !result.approval_prompt_emitted_before_n
+                                    || !result.approval_prompt_emitted_before_o)) {
+        std::cerr << "[PTY typed-no failure trace] screen_rows=24 cols=80"
+                  << " approval_header_visible=" << (screen.approval_header_visible() ? "yes" : "no")
+                  << " approval_prompt_ready=" << (result.approval_prompt_ready ? "yes" : "no")
+                  << " Input_emitted_before_n=" << (result.approval_prompt_emitted_before_n ? "yes" : "no")
+                  << " Input_emitted_before_o=" << (result.approval_prompt_emitted_before_o ? "yes" : "no")
+                  << " model_input_visible_before_n=" << (screen.input_prompt_visible() ? "yes" : "no")
+                  << " input_screen=\"" << result.failure_screen_input_line << "\""
+                  << " raw_input_marker=" << (result.output.find("Input: ") != std::string::npos ? "yes" : "no")
+                  << " printable_bytes=" << screen.printable_bytes_seen()
+                  << " screen_summary=\"" << screen.safe_screen_summary() << "\""
+                  << " requests_before_enter=" << (result.no_tool_request_before_typed_no_enter ? 1 : 0)
+                  << " target_absent_before_enter=" << (result.no_file_before_typed_no_enter ? "yes" : "no")
+                  << "\n[PTY timing ms]";
+        for (const auto& [event, elapsed] : result.pty_timeline_ms)
+            std::cerr << ' ' << event << '=' << elapsed;
+        std::cerr << "\n[PTY recent CSI] " << result.failure_recent_controls << '\n';
+    }
     (void)::close(master);
     return result;
 }
@@ -376,6 +629,9 @@ TEST(tui3, typed_no_is_retained_until_enter_without_leaking_to_composer)
     const auto run = run_tui_write_decision(server, working_directory.path(), "typed-no", false);
     CHECK(run.exited);
     CHECK(run.dialog_seen);
+    CHECK(run.approval_prompt_ready);
+    CHECK(run.approval_prompt_emitted_before_n);
+    CHECK(run.approval_prompt_emitted_before_o);
     CHECK(run.dialog_kept_typed_no);
     CHECK(run.mouse_reporting_disabled);
     CHECK(run.mouse_reporting_restored);
@@ -385,11 +641,36 @@ TEST(tui3, typed_no_is_retained_until_enter_without_leaking_to_composer)
     CHECK_EQ(server.received_bodies().size(), std::size_t(2));
 }
 
-TEST(tui3, pty_dialog_text_oracle_joins_ncurses_cursor_updates)
+TEST(tui3, pty_screen_oracle_applies_split_ncurses_cursor_updates)
 {
-    const std::string rendered_in_two_updates =
-        "\033[24;1HInput: \033[24;8Hno\033[?25h";
-    CHECK_EQ(visible_pty_text(rendered_in_two_updates), std::string("Input: no"));
+    PtyScreen screen;
+    screen.feed("\033[24;");
+    screen.feed("1HInput: ");
+    CHECK(screen.input_prompt_visible());
+    CHECK(!screen.input_is_no_visible());
+    screen.feed("\033[24;8");
+    screen.feed("Hno\033[?25h");
+    CHECK(screen.input_prompt_visible());
+    CHECK(screen.input_is_no_visible());
+    CHECK_EQ(screen.safe_input_row(), std::string("Input: no"));
+    screen.feed("t");
+    CHECK(!screen.input_is_no_visible());
+}
+
+TEST(tui3, pty_screen_ignores_split_charset_designators)
+{
+    PtyScreen screen;
+    screen.feed("\033[24;1HInput: \033(");
+    CHECK(screen.input_prompt_visible());
+
+    // ESC ( B is split between independent PTY reads.
+    screen.feed("Bn\033");
+    screen.feed("(Bo\033(");
+    screen.feed("B");
+
+    CHECK(screen.input_prompt_visible());
+    CHECK(screen.input_is_no_visible());
+    CHECK_EQ(screen.safe_input_row(), std::string("Input: no"));
 }
 
 TEST(tui3, multiline_composer_keeps_cursor_and_visible_content_inside_its_viewport)

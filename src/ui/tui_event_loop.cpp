@@ -77,6 +77,10 @@ bool TuiEventLoop::sync_approval_dialog()
         approval_confirmation_input_.clear();
         approval_scroll_ = 0;
         approval_expired_ = false;
+        if (!approval_mouse_suspended_) {
+            terminal_.set_mouse_reporting_enabled(false);
+            approval_mouse_suspended_ = true;
+        }
         return true;
     }
     if (approval_request_ && !approvals_->is_pending(approval_request_->approval_id)) {
@@ -86,19 +90,33 @@ bool TuiEventLoop::sync_approval_dialog()
             approval_confirmation_input_.clear();
             return true;
         }
-        approval_request_.reset();
-        approval_challenge_.clear();
-        approval_confirmation_input_.clear();
-        approval_scroll_ = 0;
-        approval_expired_ = false;
+        close_approval_dialog();
         return true;
     }
     return false;
 }
 
+void TuiEventLoop::close_approval_dialog() noexcept
+{
+    approval_request_.reset();
+    approval_challenge_.clear();
+    approval_confirmation_input_.clear();
+    approval_scroll_ = 0;
+    approval_expired_ = false;
+    if (approval_mouse_suspended_) {
+        terminal_.set_mouse_reporting_enabled(true);
+        approval_mouse_suspended_ = false;
+    }
+}
+
 bool TuiEventLoop::handle_approval_key(wint_t key, bool key_code)
 {
     if (!approval_request_) return false;
+    if (key_code && key == KEY_MOUSE) {
+        MEVENT ignored{};
+        static_cast<void>(getmouse(&ignored));
+        return false;
+    }
     if (key_code && key == KEY_F(10)) {
         static_cast<void>(approvals_->resolve(approval_request_->approval_id, ApprovalDecision::cancelled));
         request_exit();
@@ -109,9 +127,7 @@ bool TuiEventLoop::handle_approval_key(wint_t key, bool key_code)
         approval_challenge_.clear();
         approval_confirmation_input_.clear();
         if ((key_code && key == KEY_ENTER) || (!key_code && (key == 10 || key == 13 || key == 27))) {
-            approval_request_.reset();
-            approval_scroll_ = 0;
-            approval_expired_ = false;
+            close_approval_dialog();
         }
         return true;
     }
@@ -165,7 +181,14 @@ bool TuiEventLoop::drain_events()
     bool changed = false;
     AgentEvent event;
     const auto channel = worker_.event_channel();
-    while (channel->try_pop(event)) { handle_event(event); changed = true; }
+    while (channel->try_pop(event)) {
+        if (!std::holds_alternative<TextDelta>(event.payload)) {
+            changed = flush_pending_assistant_delta() || changed;
+        }
+        handle_event(event);
+        changed = true;
+    }
+    changed = flush_pending_assistant_delta() || changed;
     const auto snapshot = channel->snapshot();
     if (active_turn_ && (snapshot.dropped_events > dropped_events_at_submit_
                          || snapshot.observer_failures > observer_failures_at_submit_)) {
@@ -177,6 +200,14 @@ bool TuiEventLoop::drain_events()
         changed = true;
     }
     return changed;
+}
+
+bool TuiEventLoop::flush_pending_assistant_delta()
+{
+    if (pending_assistant_delta_.empty()) return false;
+    view_.append_assistant_delta(pending_assistant_delta_);
+    pending_assistant_delta_.clear();
+    return true;
 }
 
 void TuiEventLoop::handle_event(const AgentEvent& event)
@@ -228,7 +259,7 @@ void TuiEventLoop::handle_event(const AgentEvent& event)
         else if constexpr (std::is_same_v<T, HttpRequestStarted>) view_.set_status("Waiting for model response…");
         else if constexpr (std::is_same_v<T, TextDelta>) {
             const auto safe = sanitizer_.feed(payload.text);
-            if (!safe.empty()) view_.append_assistant_delta(safe);
+            pending_assistant_delta_ += safe;
             view_.set_status("Receiving model stream…");
         } else if constexpr (std::is_same_v<T, ToolAuthorizationRequested>) {
             view_.set_status("Waiting for explicit write approval.");
@@ -334,6 +365,50 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
             else view_.set_status("F9 sends only from Conversation.");
             return true;
         }
+        if (key == KEY_MOUSE) {
+            MEVENT event{};
+            if (!terminal_.mouse_enabled() || getmouse(&event) != OK) return false;
+            if (event.bstate & (BUTTON4_PRESSED | BUTTON5_PRESSED)) {
+                bool changed = false;
+                if (event.bstate & BUTTON4_PRESSED) changed = view_.scroll_page_up(navigation_.page()) || changed;
+                if (event.bstate & BUTTON5_PRESSED) changed = view_.scroll_page_down(navigation_.page()) || changed;
+                return changed;
+            }
+            if (event.bstate & BUTTON1_PRESSED) {
+                if (event.y == 1) {
+                    const int tab = view_.hit_test_tab(event.x, terminal_columns, navigation_.page(),
+                                                       navigation_.focus() == TuiFocus::menu);
+                    if (tab >= 0) {
+                        if (static_cast<int>(navigation_.page()) == tab) return false;
+                        navigation_.select_function_key(tab + 1);
+                        return true;
+                    }
+                }
+                if (navigation_.page() == TuiPage::conversation && view_.hit_test_composer(event.y, terminal_rows)) {
+                    if (navigation_.focus() == TuiFocus::composer) return false;
+                    navigation_.set_focus(TuiFocus::composer);
+                    return true;
+                }
+                const int subsection = view_.hit_test_subsection(navigation_.page(), event.y);
+                if (subsection >= 0) {
+                    const int old_index = navigation_.subsection_index();
+                    const auto old_focus = navigation_.focus();
+                    const bool old_open = navigation_.subsection_open();
+                    if (!navigation_.select_subsection(subsection)) return false;
+                    navigation_.set_focus(TuiFocus::menu);
+                    static_cast<void>(navigation_.activate_subsection());
+                    return old_index != navigation_.subsection_index() || old_focus != navigation_.focus()
+                        || old_open != navigation_.subsection_open();
+                }
+                if (!view_.hit_test_content(event.x, event.y, terminal_rows, terminal_columns,
+                                            navigation_.page(), navigation_.subsection_index(),
+                                            navigation_.subsection_open())) return false;
+                if (navigation_.focus() == TuiFocus::content) return false;
+                navigation_.set_focus(TuiFocus::content);
+                return true;
+            }
+            return false;
+        }
         for (int number = 1; number <= 6; ++number) {
             if (key == KEY_F(number)) {
                 static_cast<void>(navigation_.select_function_key(number));
@@ -341,8 +416,8 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
             }
         }
         if (key == KEY_RESIZE) return true;
-        if (key == KEY_PPAGE) { view_.scroll_page_up(navigation_.page()); return true; }
-        if (key == KEY_NPAGE) { view_.scroll_page_down(navigation_.page()); return true; }
+        if (key == KEY_PPAGE) return view_.scroll_page_up(navigation_.page());
+        if (key == KEY_NPAGE) return view_.scroll_page_down(navigation_.page());
         if (key == KEY_UP || key == KEY_DOWN) {
             const int direction = key == KEY_UP ? -1 : 1;
             if (navigation_.page() == TuiPage::conversation && navigation_.focus() == TuiFocus::composer) {
@@ -355,10 +430,12 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
             }
             if (navigation_.move_selection(direction)) return true;
             if (navigation_.focus() == TuiFocus::content) {
-                if (direction < 0) view_.scroll_page_up(navigation_.page());
-                else view_.scroll_page_down(navigation_.page());
-                return true;
+                return direction < 0 ? view_.scroll_page_up(navigation_.page())
+                                     : view_.scroll_page_down(navigation_.page());
             }
+        }
+        if (key == KEY_ENTER && navigation_.focus() == TuiFocus::menu) {
+            return navigation_.activate_subsection();
         }
         if (key == KEY_HOME || key == KEY_END) {
             if (navigation_.page() == TuiPage::conversation && navigation_.focus() == TuiFocus::composer) {
@@ -378,15 +455,27 @@ bool TuiEventLoop::handle_key(wint_t key, bool key_code)
         }
         return false;
     }
-    if (key == 27) { navigation_.escape_to_conversation(); view_.set_status("Returned to Conversation."); return true; }
+    if (key == 27) {
+        if (!navigation_.close_subsection()) navigation_.escape_to_conversation();
+        view_.set_status("Returned/back."); return true;
+    }
     if (key == 9) {
         navigation_.cycle_focus();
         view_.set_status(navigation_.focus() == TuiFocus::composer ? "Composer focused." :
                          navigation_.focus() == TuiFocus::menu ? "View menu focused." : "View content focused.");
         return true;
     }
-    if (key == KEY_UP) { view_.scroll_page_up(navigation_.page()); return true; }
-    if (key == KEY_DOWN) { view_.scroll_page_down(navigation_.page()); return true; }
+    if (key == KEY_UP) return view_.scroll_page_up(navigation_.page());
+    if (key == KEY_DOWN) return view_.scroll_page_down(navigation_.page());
+    if ((key == 10 || key == 13) && navigation_.focus() == TuiFocus::menu) {
+        return navigation_.activate_subsection();
+    }
+    if ((key == 'm' || key == 'M') && navigation_.page() == TuiPage::conversation
+        && navigation_.focus() == TuiFocus::content) {
+        view_.set_markdown_enabled(!view_.markdown_enabled());
+        view_.set_status(view_.markdown_enabled() ? "Formatted Markdown view." : "Plain text view; source content preserved.");
+        return true;
+    }
     if (navigation_.focus() != TuiFocus::composer || !navigation_.can_submit()) return false;
     if (key == 10 || key == 13) { input_.insert(cursor_byte_++, 1, '\n'); preferred_composer_column_.reset(); return true; }
     if (key >= 32 && key <= 0x10ffff) {

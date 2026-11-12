@@ -24,7 +24,8 @@ Documents normatifs validés et spécifications en cours de ratification ; le st
 | Spécification | Contenu |
 | --- | --- |
 | [`specifications/repl-multiline-requirements.md`](specifications/repl-multiline-requirements.md) | **REPL multiline** — exigences `REPL-01` → `REPL-09` **approuvées, implémentation vérifiée au SHA daté de M4** (D-1 à D-8 et arbitrages A-1 à A-9) : déclenchement `:multi`, terminateur `:end`, conservation exacte, unicité de l'envoi, blocs vides, `exit`, EOF/Ctrl+D, retour à l'invite |
-| [`specifications/console-ui-architecture-requirements.md`](specifications/console-ui-architecture-requirements.md) | **SPEC-UI-001 v2.0 — proposition TUI** : décision mainteneur de TUI plein écran et CLI classique indépendante ratifiée; backend, dépendance, file d'événements et interactions restent à arbitrer |
+| [`specifications/console-ui-architecture-requirements.md`](specifications/console-ui-architecture-requirements.md) | **SPEC-UI-001 v2.0** : contrats de TUI plein écran et CLI classique; les choix effectivement intégrés et les rapports datés prévalent sur les propositions historiques |
+| [`specifications/SPEC-LOFI-001-v1.1.md`](specifications/SPEC-LOFI-001-v1.1.md) | SPEC-LOFI-001 v1.1 — identité UX LOFITERM, aide, souris, Markdown et non-régression; copie de l'étude source avec son statut historique |
 
 ## Rapports de phase
 
@@ -125,6 +126,13 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-09-tui-multiline-composer-fix.md](reports/2026-11-09-tui-multiline-composer-fix.md) | Composeur TUI multiligne : viewport borné, curseur visuel, navigation par lignes et validation PTY du contenu transmis |
 | [2026-11-10-lofiterm-v1-physical-qualification.md](reports/2026-11-10-lofiterm-v1-physical-qualification.md) | Complément de recette Debian 13/Ghostty au SHA `78aab20` : build, tests et parcours réel d'approbation write_file rapportés par le mainteneur |
 | [2026-11-10-lofiterm-graphic-integration.md](reports/2026-11-10-lofiterm-graphic-integration.md) | Intégration graphique LOFITERM à la TUI : palette adaptative, six vues, monochrome, tests PTY et limites de qualification |
+| [2026-11-10-lofiterm-ux-v1.1-implementation.md](reports/2026-11-10-lofiterm-ux-v1.1-implementation.md) | Implémentation UX LOFITERM v1.1 : rubriques, souris, présentation Markdown, tests et limites au SHA de branche |
+| [2026-11-10-lofiterm-ux-v1.1-final-review.md](reports/2026-11-10-lofiterm-ux-v1.1-final-review.md) | Revue ciblée UX v1.1 : matrice UX-01…UX-20, écarts souris/performance, plan séparé, recette Ghostty et verdict |
+| [2026-11-10-lofiterm-ux-v1.1-targeted-corrections.md](reports/2026-11-10-lofiterm-ux-v1.1-targeted-corrections.md) | Corrections ciblées de la revue UX v1.1, résultats des tests et mesure comparative du rendu Markdown |
+| [2026-11-10-lofiterm-ux-v1.1-physical-qualification.md](reports/2026-11-10-lofiterm-ux-v1.1-physical-qualification.md) | Recette Ghostty rapportée par le mainteneur : 11 contrôles déclarés PASS; correspondance officielle partielle et réserves restantes |
+| [2026-11-11-lofiterm-ux-v1.1-approval-mouse-selection-fix.md](reports/2026-11-11-lofiterm-ux-v1.1-approval-mouse-selection-fix.md) | Suspension temporaire du reporting souris dans WRITE APPROVAL, tests PTY et sélection native Ghostty sans Maj confirmée par le mainteneur |
+| [2026-11-11-lofiterm-ux-v1.1-click-focus-colors-fix.md](reports/2026-11-11-lofiterm-ux-v1.1-click-focus-colors-fix.md) | Clics non interactifs sans changement de focus/redraw, styles ncurses stables et résultats automatisés; contrôle visuel Ghostty restant |
+| [2026-11-12-lofiterm-ux-v1.1-tui3-pty-oracle-fix.md](reports/2026-11-12-lofiterm-ux-v1.1-tui3-pty-oracle-fix.md) | Correction de l'oracle PTY `typed_no`, résultats TUI-3/UX, harnais et CTest; limite sur la trace historique non conservée |
 | [2026-11-10-lofiterm-v1-final-corrections.md](reports/2026-11-10-lofiterm-v1-final-corrections.md) | Clôture v1.0 : synchronisation PTY du dialogue d'approbation, preuves du retour des résultats d'outils et validation finale |
 | [2026-11-10-final-git-ui4-v1-freeze-audit.md](reports/2026-11-10-final-git-ui4-v1-freeze-audit.md) | Audit du SHA `b1d1942` : état Git, préservation du travail UI-4 local et décision sur le gel du socle technique v1.0 |
 | [2026-11-10-v1-technical-tag-freeze.md](reports/2026-11-10-v1-technical-tag-freeze.md) | Publication et vérification du tag annoté `v1.0.0-technical` sur le SHA `b1d1942` |

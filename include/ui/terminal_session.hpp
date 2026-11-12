@@ -20,6 +20,8 @@ public:
 
     WINDOW* window() const noexcept { return window_; }
     bool unicode_enabled() const noexcept { return capabilities_.stdout_unicode; }
+    bool mouse_enabled() const noexcept { return mouse_available_ && mouse_reporting_enabled_; }
+    void set_mouse_reporting_enabled(bool enabled) noexcept;
 
 private:
     void restore() noexcept;
@@ -27,6 +29,10 @@ private:
     TerminalCapabilities capabilities_;
     termios original_termios_{};
     bool have_original_termios_ = false;
+    mmask_t previous_mouse_mask_ = 0;
+    mmask_t requested_mouse_mask_ = 0;
+    bool mouse_available_ = false;
+    bool mouse_reporting_enabled_ = false;
     SCREEN* screen_ = nullptr;
     SCREEN* previous_screen_ = nullptr;
     WINDOW* window_ = nullptr;

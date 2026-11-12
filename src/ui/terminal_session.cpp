@@ -34,15 +34,26 @@ TerminalSession::TerminalSession()
     }
     (void)curs_set(1);
     (void)mouseinterval(0);
+    requested_mouse_mask_ = BUTTON1_PRESSED | BUTTON4_PRESSED | BUTTON5_PRESSED;
+    mouse_available_ = mousemask(requested_mouse_mask_, &previous_mouse_mask_) != 0;
+    mouse_reporting_enabled_ = mouse_available_;
     wtimeout(window_, 40);
 }
 
 TerminalSession::~TerminalSession() { restore(); }
 
+void TerminalSession::set_mouse_reporting_enabled(bool enabled) noexcept
+{
+    if (!mouse_available_) return;
+    (void)mousemask(enabled ? requested_mouse_mask_ : 0, nullptr);
+    mouse_reporting_enabled_ = enabled;
+}
+
 void TerminalSession::restore() noexcept
 {
     if (screen_ != nullptr) {
         (void)set_term(screen_);
+        (void)mousemask(previous_mouse_mask_, nullptr);
         (void)endwin();
         delscreen(screen_);
         screen_ = nullptr;

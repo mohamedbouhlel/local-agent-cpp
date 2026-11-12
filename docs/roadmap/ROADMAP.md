@@ -5,8 +5,118 @@
 > - **DÉDUCTION** : inféré de l'historique et de l'état du code, sans intention explicite dans le dépôt.
 > - **PROPOSITION** : suggestion de l'audit, non décidée par le projet.
 >
-> Aucun changement du code existant n'est proposée ici : l'état des lieux
-> ([`PROJECT_CONTEXT.md`](../context/PROJECT_CONTEXT.md), [`PROJECT_HISTORY.md`](../history/PROJECT_HISTORY.md)) précède toute proposition.
+> Les propositions de développement ci-dessous ne sont pas des décisions
+> d'implémentation. Les photographies plus anciennes de
+> ([`PROJECT_CONTEXT.md`](../context/PROJECT_CONTEXT.md), [`PROJECT_HISTORY.md`](../history/PROJECT_HISTORY.md))
+> restent datées et ne remplacent pas l'état courant ajouté en tête.
+
+## État courant et convergence produit — 2026-11-12
+
+> **Photographie de code et de Git :** `main` / `origin/main` local au SHA
+> `fe681d3fb2f71f4a3aaa2b0d996df16f5896b923`, merge PR #49. La résolution
+> DNS de GitHub a échoué pendant cette intervention; la référence distante
+> fraîche n'a donc pas pu être interrogée. Le SHA local `origin/main` concorde
+> avec le SHA de référence communiqué et avec le HEAD local. Le tag annoté
+> `v1.0.0-technical` conserve son objet `3079c4ec769acacfc3298610943a69599199db17`
+> et pointe sur `b1d194288b02b5df094953affd763776991d3e0a`.
+>
+> Les sections A–H et la mise à jour UX ci-dessous sont des photographies et
+> propositions **datées à leurs SHA historiques**, non des statuts actuels.
+> Cette section est la référence courante de la roadmap au SHA ci-dessus;
+> elle ne réécrit ni les archives ni le gel technique. Les libellés de preuve
+> sont `CODE VÉRIFIÉ`, `GIT VÉRIFIÉ`, `TEST RAPPORTÉ`, `RECETTE MAINTENEUR`,
+> `RISQUE NON PROUVÉ`, `PROPOSITION` ou `DÉCISION OUVERTE`.
+
+### Capacités présentes et niveau de preuve
+
+| Capacité | État au SHA courant | Preuve et niveau | Réserve / effet pour la livraison |
+|---|---|---|---|
+| Agent C++ et conversation | Code de génération OpenAI-compatible en streaming SSE, reconstruction de `content` et `tool_calls`; `[DONE]` requis, `finish_reason=length`, JSON SSE malformé et flux coupés traités comme échecs. | **CODE VÉRIFIÉ** : `src/agent.cpp`, `src/sse_parser.cpp`, `src/http_client.cpp`; corrections SSE dans PR #36/#49 et rapports datés. | La session AnythingLLM ~87 s n'a pas été comparée au payload. Le mock 62 s est une preuve historique de transport sur le candidat, pas une qualification d'une génération réelle >60 s sur le main fusionné. |
+| Délais HTTP | Connexion, inactivité de réponse et durée totale ont des paramètres distincts; les défauts de l'exécutable sont 10/60/300 s. `LLM_TIMEOUT_SECONDS` reste le fallback idle de l'exécutable; la compatibilité des anciens appels C++ conserve son ancien total. | **CODE VÉRIFIÉ** : `src/main.cpp`, `src/runtime_config.hpp`, `src/http_client.cpp`; PR #49. | **TEST RAPPORTÉ** : candidat PR #49, build propre avant durcissement final puis rebuild incrémental, 304 cas / 8 702 assertions et CTest 14/14 sur les deux dernières campagnes complètes. Une exécution intermédiaire a échoué sur une assertion non identifiée; ces résultats ne sont pas rejoués sur le merge. |
+| Mesures réseau/SSE | Distinction des octets du corps HTTP, trames `data:` SSE, fragments texte livrés par le parser et trames portant des champs de raisonnement. | **CODE VÉRIFIÉ** : `include/ui/agent_event.hpp`, `src/agent.cpp`, `src/ui/metrics.cpp`, `src/ui/tui_view.cpp`. | Aucun compteur ne représente des tokens ou un débit token/s. Les octets HTTP ne sont pas des octets réseau complets. Le corps SSE brut est temporairement tamponné; le corps non-2xx peut apparaître dans `HttpError`. |
+| Outils workspace | `list_files`, `read_file`, `search_files`, `write_file`; lecture/search bornées selon leurs contrats et création seule pour l'écriture. | **CODE VÉRIFIÉ** : `src/workspace_tools.cpp`, `src/workspace_search.cpp`, `src/workspace_write.cpp`, `src/tool_registry.cpp`. | Le modèle peut faire plusieurs appels jusqu'à cinq itérations par envoi. Aucun résultat textuel du modèle ne prouve à lui seul l'effet réel; les résultats d'outil sont exposés séparément. Les plafonds de contexte/calibrage ne sont pas des garanties de tokens. |
+| Approbation des créations | `write_file` passe par une demande exacte, défi aléatoire et `PreparedWrite`; seule l'approbation permet la consommation. `overwrite:true` et l'écrasement restent refusés. | **CODE VÉRIFIÉ** : `src/workspace_write_authorization.cpp`, `src/workspace_write.cpp`, `src/workspace_tools.cpp`, `src/ui/tui_event_loop.cpp`; rapports v1.0 et UX. | La politique est par opération et ne constitue pas une isolation face à d'autres processus du même UID. Les refus/annulations doivent rester distincts d'une erreur Landlock. |
+| Landlock / fichiers | Sous Linux, confinement requis au démarrage; racine `workspace/` calculée relativement au CWD. Les outils refusent chemins absolus et `..`, liens selon les vérifications applicables; l'écriture est sans écrasement. | **CODE VÉRIFIÉ** : `src/main.cpp`, `src/filesystem_sandbox.cpp`, `src/workspace_tools.cpp`, `src/workspace_write.cpp`; `AGENTS.md`, `USAGE.md`. | Landlock ne confine pas les autres processus du même compte; course concurrente et durabilité après crash sans `fsync` restent des limites documentées. Un lancement depuis un autre répertoire change le workspace effectif. |
+| CLI / REPL | Mode classique par défaut, `--ui=classic` explicite, saisie simple et bloc multiligne; sortie réponse et diagnostics séparés. | **CODE VÉRIFIÉ** : `src/main.cpp`, `src/prompt_reader.cpp`, `src/ui/presentation_controller.cpp`; tests versionnés. | Le mode classique et les interactions physiques n'ont pas été rejoués dans cette mission documentaire. |
+| TUI six vues | ncursesw, worker, événements, navigation F1–F6, Conversation, Outils, Métriques, Diagnostics, Configuration et Aide; F9 envoi, F10 sortie, souris conditionnelle. | **CODE VÉRIFIÉ** : `src/ui/tui_event_loop.cpp`, `src/ui/tui_navigation.cpp`, `src/ui/tui_view.cpp`, `src/ui/terminal_session.cpp`; intégration par PR #30/#47. | La visionneuse `.md` locale demandée par SPEC-LOFI-001 v1.1 reste reportée. Certains scénarios officiels restent partiels ou non exécutés. |
+| Markdown / identité UX | Affichage `LOFITERM Bot`, sous-rubriques, mode Markdown/texte brut, présentation de blocs et colorations lexicales simples, sanitisation terminal. | **CODE VÉRIFIÉ** : `src/ui/markdown_presenter.cpp`, `src/ui/tui_view.cpp`, `src/ui/terminal_text_sanitizer.cpp`; SPEC v1.1 et rapports UX. | Ce n'est pas un renderer Markdown complet ni un lexer sémantique. La conformité Unicode universelle et tous les terminaux ne sont pas qualifiés. Les anciens statuts « implémentation non effectuée » décrivaient l'état antérieur à PR #47. |
+| Historique Outils/Diagnostics | `BoundedHistory` limite chaque historique à 32 entrées et 16 384 octets de texte neutralisé; évictions/rejets sont affichés. | **CODE VÉRIFIÉ** : `include/ui/bounded_history.hpp`, `src/ui/bounded_history.cpp`, `src/ui/tui_view.cpp`; PR #32 et rapport de vérification scroll. | Cette limite n'est pas une borne RSS globale : buffers temporaires, transcript, brouillon et snapshots ne sont pas inclus. L'ancre elle-même évincée entraîne un repositionnement et un indicateur `PARTIAL` après correctif ultérieur intégré. |
+| MetricCollector / F3 | Collecteur réel intégré dans la CLI et TUI, mesures HTTP/outils/tour, IDs corrélés, bornes sur détails, statuts indisponibles ou partiels. | **CODE VÉRIFIÉ** : `include/ui/metrics.hpp`, `src/ui/metrics.cpp`, `src/ui/presentation_controller.cpp`, `src/ui/tui_event_loop.cpp`, `src/ui/tui_view.cpp`; PR #43/#44. | **TEST RAPPORTÉ** : pré-fusion 275 cas / 8 196 assertions, CTest 14/14; recette mainteneur UI-4 dix contrôles. Le lien complet saturation EventChannel → `PARTIAL` visible en F3 n'est pas prouvé de bout en bout; coût CPU/RSS des snapshots non mesuré. Les métriques ne sont ni tokens ni mémoire RSS. |
+| Qualification UX physique | 11 contrôles rapides annoncés PASS par le mainteneur; les 16 scénarios officiels sont classés individuellement dans le rapport de qualification. | **RECETTE MAINTENEUR** : `2026-11-10-lofiterm-ux-v1.1-physical-qualification.md`; tests et fixes PTY par PR #48. | Les 11 contrôles génériques ne satisfont pas automatiquement tous les détails des 16 scénarios : plusieurs restent PARTIAL/NOT RUN, dont `NO_COLOR`, erreur d'endpoint, `PARTIAL` après saturation, et dimensions précises/échantillons de langages. Ce n'est pas un défaut reproduit. |
+| Sessions / contexte / cache / mémoire | Agent garde un historique JSON en RAM par instance et coupe les anciens tours complets à 20 messages lorsque possible; max 5 itérations outils. Aucun catalogue de sessions/reprise, budget tokens, compaction, mémoire persistante ou cache applicatif n'est identifié. | **CODE VÉRIFIÉ** : `src/agent.cpp`, `include/agent.hpp`; comparaison au code et étude SCCM externe actualisée. | La limite en messages n'est pas une limite de tokens; le dernier tour peut dépasser 20 messages. Cache KV éventuel du serveur LLM : **INCONNU** et hors du client. Ce sont des absences constatées, pas des fonctionnalités à développer automatiquement. |
+| Build, tests et exploitation | C++20 / CMake, `agent_core`, `agent_tui`, binaire technique `agent`; 14 groupes CTest déclarés sous Linux. | **CODE VÉRIFIÉ** : `CMakeLists.txt`, `tests/CMakeLists.txt`; 304 déclarations `TEST(...)` au SHA lu. | Les déclarations ne sont pas des tests exécutés. **NOT RUN** dans cette mission. `AGENTS.md` cite 13 groupes et omet le groupe `ui4` présent dans CMake : écart documentaire. Aucun workflow CI suivi n'est présent dans l'arbre. |
+| Version produit / installation | Le tag `v1.0.0-technical` fige une baseline technique antérieure; aucun `install()` CMake, version de projet exploitable, paquet `.deb` ou fichier de licence n'est présent dans l'arbre `main`. | **GIT VÉRIFIÉ** : arbre de `fe681d3`; `CMakeLists.txt`; tag vérifié localement. | Un worktree local `packaging/lofiterm-debian13` contient des modifications et fichiers non suivis, mais ils ne sont pas dans `main` et aucun `.deb` n'a été établi ici. Le choix licence, source archive vs `.deb`, version produit et autorisation de redistribution restent ouverts. |
+| SCCM | Une étude SCCM actualisée existe hors dépôt; aucune architecture complète de sessions/cache/contexte/mémoire n'est intégrée. | **CODE VÉRIFIÉ** et document externe consulté : `/home/oper/Téléchargements/LOFITERM-SCCM-etude-actualisee-2026-11-10.md`. | Proposition d'évolution seulement. L'ancienne étude exacte du 8 novembre indiquée comme source dans des échanges n'a pas été retrouvée dans les emplacements explorés; aucune des options SCCM n'est ratifiée par ce rapport. |
+
+### Réconciliation des archives et statuts
+
+- Les merges présents dans le DAG local de `main` sont #47 (`9a8857be`, UX
+  v1.1), #48 (`fcd50afe`, correctif de l'oracle PTY) et #49 (`fe681d3`, HTTP/SSE).
+  Ce sont des **GIT VÉRIFIÉ** au dépôt local; l'accès réseau n'a pas permis un
+  rafraîchissement live du remote pendant cette intervention.
+- La photographie de `PROJECT_CONTEXT.md` est explicitement arrêtée à un SHA
+  antérieur et contient des statuts désormais périmés (MetricCollector absent,
+  anciens délais, anciens groupes de tests, ancien contrat writer). Elle reste
+  une archive datée et ne doit pas servir de description courante sans nouvelle
+  révision. De même, les sections historiques de `OPEN_QUESTIONS.md` et
+  `PROJECT_HISTORY.md` conservent leur portée temporelle.
+- Dans cette roadmap, la section H de 2026-11-07 décrit à juste titre son état
+  d'alors mais dit que MetricCollector est absent et propose la rétention comme
+  future. PR #43 et #32 ont depuis livré ces éléments. La mise à jour UX du
+  2026-11-10 décrivait le candidat avant PR #47 et ne couvrait pas PR #48/#49.
+  Elles ne sont pas effacées; la présente section prévaut pour l'état courant.
+- Les comptes de tests diffèrent par SHA et par étape. Les résultats de PR #43,
+  #47, #48 et #49 sont **TESTS RAPPORTÉS** sur leurs candidats respectifs,
+  jamais relabellisés comme un nouvel essai de `fe681d3`. Pour #49, deux passes
+  complètes à 304/8 702 et CTest 14/14 sont consignées après un échec isolé
+  non identifié; build propre avant le dernier parseur strict, rebuild
+  incrémental après. Ce passif reste visible.
+- Les mesures ont des unités distinctes : octets du corps HTTP; nombre de
+  charges `data:` SSE (dont `[DONE]` selon le compteur); fragments de texte
+  livrés comme `TextDelta`; aucun compteur de tokens n'est présent. Un fragment
+  peut contenir une quantité variable de texte et ne vaut pas un token.
+
+### Sessions, cache, contexte et mémoire — qualification au code
+
+| Domaine | Classement | État observé et frontière |
+|---|---|---|
+| Cycle de session | **Présent, volatile** | `Agent` reçoit un `SessionId` runtime et conserve `history_` dans son instance. Aucun chargement/sauvegarde ou reprise session n'est identifié; fermeture du processus perd cet état. Le nom SessionId ne signifie pas catalogue durable. |
+| Historique conversationnel | **Présent, RAM** | JSON des messages d'un seul agent; trim par tours complets à une cible de 20 messages, mais le dernier tour est préservé et peut dépasser. Les réponses partielles ne sont pas validées comme message assistant complet, mais les actions d'outil déjà exécutées ne sont pas annulables par le simple échec du tour. |
+| Budget de contexte | **Absent** | Aucune comptabilité exacte de tokens/tokenizer ni fenêtre de contexte fiable détectée. Limiter les messages ne garantit pas le budget serveur; la taille exacte disponible dépend du backend/modèle et reste une décision/profil à établir. |
+| Cache applicatif | **Absent** | Aucun cache réponse LLM, résultat d'outil ou contenu fichier avec clé/invalidation n'est trouvé. BoundedHistory et MetricCollector sont des historiques volatils bornés de présentation/détails, pas un cache sémantique. |
+| Cache serveur LLM | **Inconnu** | Le client ne déclare pas/mesure pas de cache KV/prefix du serveur; comportement externe au dépôt. |
+| Mémoire persistante entre sessions | **Absente** | Le workspace contient des fichiers utilisateur/outils, pas un mécanisme de souvenirs réutilisés automatiquement. Ne pas assimiler `write_file` à la mémoire de l'agent. |
+| Confidentialité et stockage | **Pas de store applicatif identifié** | Pas de politique de conversation persistée, effacement ou chiffrement de store à arbitrer pour le code actuel. Les données de config sont lues par environnement; la TUI masque la clé et expurge l'origine d'URL. Le tampon HTTP SSE transitoire et les erreurs non-2xx restent une frontière de confidentialité documentée. |
+| Compatibilité Landlock | **Aucune persistance SCCM intégrée** | Toute future base/store nécessiterait une décision explicite de chemin/droits, revue Landlock et tests; le workspace actuel n'est pas un emplacement privé contre d'autres processus du même compte. |
+
+L'étude plus ancienne `LOFITERM-etude-architecture-sessions-cache-contexte-memoire-2026-11-08(1).md` n'a pas été trouvée localement dans `/home/oper` aux emplacements explorés. Le rapport ETUDE-SCCM-002 actualisé du 10 novembre a été consulté hors dépôt; ses architectures et tests restent des **PROPOSITIONS**, non des décisions.
+
+### Trajectoire unique de convergence
+
+Cette séquence remplace les anciennes propositions de phases du point de vue
+du pilotage courant; elle ne renumérote pas les jalons TUI historiques.
+
+| Résultat produit | Travaux et dépendances | Risques à suivre | Clôture vérifiable |
+|---|---|---|---|
+| **1. Référentiel et convergence documentaire** | Maintenir cette roadmap et le rapport de convergence comme photographie datée; corriger ensuite les guides seulement par changements ciblés et autorisés. | Anciennes photos de `PROJECT_CONTEXT`, `OPEN_QUESTIONS`, `ROADMAP` peuvent être lues comme courantes; accès live GitHub parfois indisponible. | SHA, source et type de preuve présents; liens valides; aucun statut historique réécrit. |
+| **2. Qualification réelle du streaming post-PR #49 au-delà de 60 s** | Avec serveur LLM réel accessible, effectuer une requête dont la génération dépasse réellement 60 s, vérifier activité SSE, `[DONE]`, réponse complète et mesure de durée; ne pas afficher/copier secrets ni prompts privés. Le mock 62 s ne remplace pas cet essai. | Réponse modèle non déterministe; comparaison payload AnythingLLM indisponible; total timeout 300 s par défaut. | Résultat humain/automatisé attribué à SHA précis, durée observée >60 s, tour complet et terminal restauré; si non disponible, consigner NOT RUN sans confondre mock et serveur réel. |
+| **3. Robustesse des tours, ressources, sécurité et contexte** | Partir des tests Agent/SSE et des limites existantes; qualifier actions partielles après succès d'outil puis erreur, charges workspace/transcript, budget message vs tokens et surfaces d'échec avant de modifier quoi que ce soit. | Effets d'outil non annulables; historique en messages sans budget de tokens; limites `list_files`/`search_files`; races d'autres processus. | Scénarios reproductibles et limites chiffrées/mesurées; toute correction seulement pour défaut reproduit; aucune action métier ou réussite fabriquée. |
+| **4. Complétude UX v1.1 et réserves UI-4** | Utiliser la matrice officielle UX/NR, sans réimplémenter les fonctions fusionnées. Fermer seulement les preuves nécessaires pour `EventChannel` saturé → `PARTIAL` → F3 et mesurer le coût des snapshots avant toute optimisation; marquer les autres conditions non testées. | Tests automatisés ne remplacent pas Ghostty; recette 11 contrôles n'établit pas chaque sous-scénario officiel. | Réserves levées par test intégré/mesure, ou acceptées explicitement comme limites; aide et comportement restent cohérents. |
+| **5. Version produit, licence, installation et packaging** | Décider langue/doc, version produit, licence autorisée et stratégie (sources reproductibles ou `.deb`) avant publication. Examiner séparément le worktree local packaging, puis construire/installer dans Debian 13 isolé seulement après décision. | Pas de licence, install target, artefact ni version de release dans `main`; Landlock et workspace relatif au CWD compliquent l'installation. | Build depuis environnement propre au SHA final; launch classic/TUI, config externe, workspace prévu, tests install/désinstallation; artefact et licence réellement vérifiés. |
+| **6. Évolution SCCM séparément autorisée** | Ne reprendre qu'après arbitrage des sessions, budget contexte, cache et mémoire. Réutiliser l'étude SCCM actualisée comme analyse non normative; définir les besoins sans présumer SQLite, persistance ou auto-mémoire. | Confidentialité, droits filesystem, reprise après effets d'outils, stockage sous Landlock, données de tokens non disponibles. | Décisions explicites et critères d'effacement/scope; aucune donnée ou capacité fictive; autorisation distincte avant code. |
+| **7. Maintenance et qualification continue** | Définir une CI Linux reproductible, tests sur SHA de release, suivi des dépendances et rapports physiques/automatisés séparés. | Aucun workflow CI versionné; tests historiques rapportés par commits différents. | Vérifications reproductibles attachées au SHA livré; échecs connus conservés; procédures de release et support documentés. |
+
+### Décisions produit ouvertes
+
+`DÉCISION OUVERTE` : licence et droit de redistribution; source archive ou
+paquet Debian; version publique et identité version/SHA; langue officielle des
+docs/UI; couple serveur-modèle de référence; politique future des sessions,
+cache et mémoire. Cette roadmap ne tranche aucune de ces décisions. La
+spécification graphique LOFITERM décrit des intentions et fonctions UX; elle
+ne constitue ni un paquet, ni une licence, ni une release complète.
+
+**Mesures de cette mise à jour :** lecture seule des sources et de l'historique;
+aucun build, CTest, test LLM ou essai physique n'a été lancé.
 
 
 > **Réconciliation M3 du 2026-11-05 :** sections A/B mises à jour à `add64b893ad447e76fb12b90e266ec8eab2f2956` ; sections C–F conservent les **déductions et propositions historiques** de l'audit. Les anciennes sections A/B sont préservées en annexe et ne définissent plus l'état courant.

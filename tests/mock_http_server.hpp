@@ -34,6 +34,7 @@ public:
         bool truncated = false;
         // Ferme la connexion sans répondre du tout.
         bool abort = false;
+        int initial_delay_us = 0;
     };
 
     // read_timeout_ms : délai maximal de lecture d'une connexion avant

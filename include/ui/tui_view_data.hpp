@@ -17,6 +17,9 @@ struct TuiViewData {
     std::string model;
     std::string endpoint_origin;
     long timeout_seconds = 0;
+    long connect_timeout_seconds = 0;
+    long idle_timeout_seconds = 0;
+    long total_timeout_seconds = 0;
     bool api_key_configured = false;
     std::vector<TuiToolSummary> tools;
 };

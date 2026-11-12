@@ -4,6 +4,7 @@
 #include "tool_registry.hpp"
 
 #include <nlohmann/json.hpp>
+#include <algorithm>
 
 namespace agent::ui {
 namespace {
@@ -32,7 +33,12 @@ TuiViewData make_tui_view_data(const AgentConfig& config, const ToolRegistry& to
     TuiViewData result;
     result.model = config.model;
     result.endpoint_origin = safe_endpoint_origin(config.base_url);
+    const auto timeouts = config.http_timeouts.value_or(HttpTimeouts{
+        std::min<long>(config.timeout_seconds, 10), config.timeout_seconds, config.timeout_seconds});
     result.timeout_seconds = config.timeout_seconds;
+    result.connect_timeout_seconds = timeouts.connect_seconds;
+    result.idle_timeout_seconds = timeouts.idle_seconds;
+    result.total_timeout_seconds = timeouts.total_seconds;
     result.api_key_configured = !config.api_key.empty();
 
     const auto schemas = tools.schemas_json();

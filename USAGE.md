@@ -31,16 +31,27 @@ Puis éditez `.env` si besoin.
 | `LLM_BASE_URL` | non | `http://localhost:8080/v1/chat/completions` | Endpoint OpenAI-compatible appelé en POST. |
 | `LLM_MODEL` | non | `local-model` | Nom du modèle envoyé dans le champ `model` du payload. |
 | `LLM_API_KEY` | non | *(vide)* | Si non vide, ajoute l'en-tête `Authorization: Bearer <clé>`. Ignoré si vide. |
-| `LLM_TIMEOUT_SECONDS` | non | `60` | Timeout des requêtes HTTP, en secondes. Doit être un entier strictement positif. |
+| `LLM_CONNECT_TIMEOUT_SECONDS` | non | `10` | Durée maximale d'établissement de la connexion. Entier strictement positif. |
+| `LLM_IDLE_TIMEOUT_SECONDS` | non | `60` | Durée maximale sans données de réponse. Les en-têtes et octets du corps reçus relancent ce délai. |
+| `LLM_TOTAL_TIMEOUT_SECONDS` | non | `300` | Durée maximale totale d'une requête, même si le flux reste actif. Entier strictement positif. |
+| `LLM_TIMEOUT_SECONDS` | non | `60` | Compatibilité : valeur de repli pour l'inactivité de l'exécutable; les anciens clients C++ gardent leur plafond global historique. |
 
-Aucune variable n'est obligatoire : sans `.env`, l'agent démarre avec les
-défauts ci-dessus. Une valeur vide est traitée comme absente et remplacée par
-le défaut. Si `LLM_TIMEOUT_SECONDS` n'est pas un entier positif, un
-avertissement est affiché sur `stderr` et la valeur `60` est utilisée :
+Aucune variable n'est obligatoire. Les trois délais sont indépendants : 10 s
+pour la connexion, 60 s sans données de réponse, et 300 s au total. Un flux qui
+continue à transmettre des données peut ainsi dépasser 60 s, tout en restant
+borné par le délai total. Les valeurs vides sont traitées comme absentes; une
+valeur invalide ou non positive avertit sur `stderr` et utilise le fallback :
 
 ```
-Invalid LLM_TIMEOUT_SECONDS value, using 60 seconds.
+Invalid LLM_IDLE_TIMEOUT_SECONDS value, using 60 seconds.
 ```
+
+`LLM_TIMEOUT_SECONDS` reste accepté comme fallback d'inactivité pour
+l'exécutable. Les clients C++ utilisant seulement `AgentConfig::timeout_seconds`
+ou les anciennes surcharges `HttpClient` conservent leur sémantique historique
+de plafond total. Une configuration d'exécutable qui ne définit que l'ancienne
+variable reçoit désormais un plafond total de 300 s; définir
+`LLM_TOTAL_TIMEOUT_SECONDS` pour une autre borne.
 
 ## 3. Lancer l'agent
 

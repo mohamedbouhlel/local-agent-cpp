@@ -282,6 +282,7 @@ TEST(tui4a, configuration_projection_redacts_endpoint_credentials_and_api_key)
 {
     ToolRegistry tools;
     AgentConfig config{"https://user:password@example.test:8443/v1/chat?token=secret", "test-model", "api-secret", 17};
+    config.http_timeouts = HttpTimeouts{7, 19, 241};
     const auto data = agent::ui::make_tui_view_data(config, tools);
     agent::ui::TuiView view;
     view.set_view_data(data);
@@ -290,6 +291,12 @@ TEST(tui4a, configuration_projection_redacts_endpoint_credentials_and_api_key)
     for (const auto& row : rows) rendered += row + '\n';
     CHECK(data.endpoint_origin == "https://example.test:8443");
     CHECK(data.api_key_configured);
+    CHECK_EQ(data.connect_timeout_seconds, 7L);
+    CHECK_EQ(data.idle_timeout_seconds, 19L);
+    CHECK_EQ(data.total_timeout_seconds, 241L);
+    CHECK(std::any_of(rows.begin(), rows.end(), [](const std::string& row) {
+        return row.find("Timeouts: connect 7s, idle 19s, total 241s") != std::string::npos;
+    }));
     bool has_password = false;
     bool has_api_secret = false;
     bool has_token = false;

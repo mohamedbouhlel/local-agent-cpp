@@ -149,7 +149,69 @@ TEST(http, timeout_distinct_des_autres_echecs_curl)
     CHECK_THROWS_MSG(
         client.post_streaming(server.url("/v1/chat/completions"), default_headers(), "{}", 1,
                               [](const std::string&) {}),
-        "HTTP POST timed out after 1s");
+        "HTTP POST total timeout after 1s");
+}
+
+TEST(http, explicit_timeouts_allow_active_stream_beyond_legacy_limit)
+{
+    MockHttpServer server;
+    MockHttpServer::Response response;
+    response.body = "abcdefgh";
+    response.piece_size = 1;
+    response.piece_delay_us = 220000;
+    server.enqueue(response);
+    const HttpClient client;
+    std::string received;
+    const auto started = std::chrono::steady_clock::now();
+    const auto result = client.post_streaming(server.url("/stream"), default_headers(), "{}",
+        HttpTimeouts{1, 1, 4}, [&received](const std::string& part) { received += part; });
+    CHECK_EQ(result, std::string("abcdefgh"));
+    CHECK_EQ(received, result);
+    CHECK(std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(1500));
+}
+
+TEST(http, active_stream_can_finish_after_sixty_seconds_before_total_limit)
+{
+    MockHttpServer server;
+    MockHttpServer::Response response;
+    response.body = std::string(62, 'x');
+    response.piece_size = 1;
+    response.piece_delay_us = 1000000;
+    server.enqueue(response);
+    const HttpClient client;
+    std::string received;
+    const auto started = std::chrono::steady_clock::now();
+    const auto result = client.post_streaming(server.url("/stream"), default_headers(), "{}",
+        HttpTimeouts{2, 5, 70}, [&received](const std::string& part) { received += part; });
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    CHECK_EQ(result.size(), std::size_t(62));
+    CHECK_EQ(received, result);
+    CHECK(elapsed >= std::chrono::seconds(60));
+}
+
+TEST(http, explicit_idle_timeout_rejects_silent_response_after_headers)
+{
+    MockHttpServer server;
+    MockHttpServer::Response response;
+    response.body = "late";
+    response.initial_delay_us = 1500000;
+    server.enqueue(response);
+    const HttpClient client;
+    CHECK_THROWS_MSG(client.post_streaming(server.url("/stream"), default_headers(), "{}",
+        HttpTimeouts{1, 1, 5}, [](const std::string&) {}), "HTTP POST idle timeout after 1s");
+}
+
+TEST(http, explicit_total_timeout_still_bounds_active_stream)
+{
+    MockHttpServer server;
+    MockHttpServer::Response response;
+    response.body = "abcdefgh";
+    response.piece_size = 1;
+    response.piece_delay_us = 250000;
+    server.enqueue(response);
+    const HttpClient client;
+    CHECK_THROWS_MSG(client.post_streaming(server.url("/stream"), default_headers(), "{}",
+        HttpTimeouts{1, 2, 1}, [](const std::string&) {}), "HTTP POST total timeout after 1s");
 }
 
 TEST(http, streaming_callback_exception_rethrown_without_type_or_message_change)

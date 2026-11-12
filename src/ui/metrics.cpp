@@ -56,6 +56,8 @@ void MetricCollector::reset_for_turn(std::optional<TurnId> turn_id, std::uint64_
     metrics_.tools_succeeded = 0;
     metrics_.tools_failed = 0;
     metrics_.text_fragments = 0;
+    metrics_.sse_data_frames = 0;
+    metrics_.reasoning_frames = 0;
     metrics_.response_body_bytes = turn_id ? std::optional<std::uint64_t>{0} : std::nullopt;
     metrics_.event_details_complete = true;
     metrics_.detail_history_truncated = false;
@@ -253,12 +255,23 @@ void MetricCollector::consume(const AgentEvent& event)
             --pending_http_requests_;
         }
         const auto& payload = std::get<HttpRequestFinished>(event.payload);
+        const auto add_saturated = [this](std::uint64_t& target, std::uint64_t amount) {
+            if (amount > std::numeric_limits<std::uint64_t>::max() - target) {
+                target = std::numeric_limits<std::uint64_t>::max();
+                metrics_.counter_overflowed = true;
+            } else target += amount;
+        };
+        add_saturated(metrics_.sse_data_frames, payload.sse_data_frames);
+        add_saturated(metrics_.reasoning_frames, payload.reasoning_frames);
+        metrics_.counter_overflowed = metrics_.counter_overflowed || payload.counter_overflowed;
         if (auto* metric = find_by_request(metrics_.http_requests, *event.metadata.request_id)) {
             if (payload.duration >= std::chrono::steady_clock::duration::zero()) {
                 metric->duration = payload.duration;
             }
             metric->response_body_bytes = payload.response_bytes;
             metric->outcome = payload.outcome;
+            metric->sse_data_frames = payload.sse_data_frames;
+            metric->reasoning_frames = payload.reasoning_frames;
         } else {
             metrics_.detail_history_truncated = true;
         }

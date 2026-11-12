@@ -392,3 +392,23 @@ Classés par preuve, sans priorisation (la priorisation est en §D).
     par `std::filesystem::absolute("workspace")` (CWD), pas depuis la racine
     du projet. Documenté dans `USAGE.md`, mais c'est une dépendance implicite.
 
+## Mise à jour UX LOFITERM v1.1 — 2026-11-10
+
+La mission UX v1.1 est exécutée dans la branche isolée
+`feat/lofiterm-ux-v1.1`, basée sur
+`46d653fe9e788c6410129b7224edd33d870af593`. Cette note complète l'historique
+ci-dessus sans renuméroter ni effacer les jalons antérieurs. Le lot couvre
+l'identité conversationnelle LOFITERM, les rubriques Configuration/Aide, la
+souris ncursesw et la présentation Markdown/code dans F1; il ne modifie ni le
+moteur ni les règles de sécurité. La visionneuse `.md` de F2 reste reportée :
+les primitives de lecture workspace sont internes à `workspace_tools.cpp`, et
+les dupliquer ou les extraire ferait dépasser le périmètre de présentation.
+L'état final et les critères réellement vérifiés figurent dans
+[`le rapport UX v1.1`](../reports/2026-11-10-lofiterm-ux-v1.1-implementation.md).
+
+Les tableaux TUI antérieurs à cette note sont des photographies datées et ne
+décrivent plus le HEAD courant : au SHA de base `46d653f`, `MetricCollector`
+est intégré et la vue F3 est alimentée par les événements de l'agent. Les
+rapports physiques UI-4 et LOFITERM restent des observations datées, pas une
+qualification automatique du présent changement UX.
+

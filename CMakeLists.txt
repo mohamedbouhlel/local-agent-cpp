@@ -46,6 +46,7 @@ target_link_libraries(agent_core PUBLIC CURL::libcurl nlohmann_json::nlohmann_js
 
 add_library(agent_tui STATIC
   src/ui/bounded_history.cpp
+  src/ui/markdown_presenter.cpp
   src/ui/terminal_session.cpp
   src/ui/tui_view.cpp
   src/ui/tui_event_loop.cpp

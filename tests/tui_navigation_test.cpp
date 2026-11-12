@@ -82,6 +82,188 @@ TEST(tui4a, submit_is_available_only_in_conversation)
     CHECK(!navigation.can_submit());
 }
 
+TEST(ux11, configuration_and_help_subsections_are_selectable_and_reversible)
+{
+    agent::ui::TuiNavigation navigation;
+    navigation.select(agent::ui::TuiPage::configuration);
+    CHECK_EQ(agent::ui::TuiNavigation::subsection_count(navigation.page()), 3);
+    CHECK(navigation.select_subsection(2));
+    CHECK_EQ(navigation.subsection_index(), 2);
+    CHECK(navigation.activate_subsection());
+    CHECK(navigation.subsection_open());
+    CHECK(navigation.close_subsection());
+    CHECK(!navigation.subsection_open());
+    navigation.select(agent::ui::TuiPage::help);
+    CHECK_EQ(agent::ui::TuiNavigation::subsection_count(navigation.page()), 3);
+    CHECK(navigation.select_subsection(1));
+    CHECK(navigation.activate_subsection());
+    navigation.escape_to_conversation();
+    CHECK(!navigation.subsection_open());
+    navigation.select(agent::ui::TuiPage::help);
+    CHECK(navigation.subsection_open());
+    CHECK(navigation.close_subsection());
+}
+
+TEST(ux11, help_about_discloses_unavailable_version_instead_of_inventing_one)
+{
+    agent::ui::TuiView view;
+    const auto rows = view.rendered_page_rows(agent::ui::TuiPage::help, 120, 2, true);
+    CHECK(std::any_of(rows.begin(), rows.end(), [](const std::string& row) {
+        return row.find("Version: unavailable") != std::string::npos;
+    }));
+    CHECK(std::any_of(rows.begin(), rows.end(), [](const std::string& row) {
+        return row.find("Platform: Linux") != std::string::npos;
+    }));
+    CHECK(std::any_of(rows.begin(), rows.end(), [](const std::string& row) {
+        return row.find("write_file requires explicit approval") != std::string::npos;
+    }));
+}
+
+TEST(ux11, help_explains_native_text_selection_in_interactive_views)
+{
+    agent::ui::TuiView view;
+    const auto rows = view.rendered_page_rows(agent::ui::TuiPage::help, 120, 1, true);
+    CHECK(std::any_of(rows.begin(), rows.end(), [](const std::string& row) {
+        return row.find("Sélectionner du texte : Maj + clic-glisser") != std::string::npos;
+    }));
+}
+
+TEST(ux11, tab_hit_test_uses_the_active_tab_geometry)
+{
+    agent::ui::TuiView view;
+    for (const int columns : {60, 80, 100, 120}) {
+        for (const bool menu_focus : {false, true}) {
+            for (const auto page : {agent::ui::TuiPage::conversation, agent::ui::TuiPage::help}) {
+                std::array<bool, 6> seen{};
+                for (int x = 0; x < columns; ++x) {
+                    const int hit = view.hit_test_tab(x, columns, page, menu_focus);
+                    if (hit >= 0) seen[static_cast<std::size_t>(hit)] = true;
+                }
+                CHECK(seen[1]);
+                CHECK_EQ(view.hit_test_tab(menu_focus ? 16 : 11, columns, page, menu_focus), 1);
+                CHECK_EQ(view.hit_test_tab(-1, columns, page, menu_focus), -1);
+            }
+        }
+    }
+    CHECK_EQ(view.hit_test_tab(2, 80, agent::ui::TuiPage::conversation), 0);
+    CHECK_EQ(view.hit_test_tab(11, 80, agent::ui::TuiPage::conversation), 1);
+    CHECK_EQ(view.hit_test_tab(-1, 80, agent::ui::TuiPage::help), -1);
+}
+
+TEST(ux11, content_hit_test_accepts_text_cells_and_ignores_headers_and_empty_rows)
+{
+    agent::ui::TuiView view;
+    CHECK(!view.hit_test_content(0, 3, 24, 80, agent::ui::TuiPage::conversation, 0, false));
+    CHECK(!view.hit_test_content(0, 4, 24, 80, agent::ui::TuiPage::conversation, 0, false));
+    view.add_notice("visible message");
+    CHECK(view.hit_test_content(0, 4, 24, 80, agent::ui::TuiPage::conversation, 0, false));
+    CHECK(!view.hit_test_content(79, 4, 24, 80, agent::ui::TuiPage::conversation, 0, false));
+    CHECK(!view.hit_test_content(0, 5, 24, 80, agent::ui::TuiPage::conversation, 0, false));
+    CHECK(!view.hit_test_content(0, 20, 24, 80, agent::ui::TuiPage::conversation, 0, false));
+
+    agent::ui::TuiViewData data;
+    data.tools.push_back({"read_file", "Read a workspace file"});
+    view.set_view_data(std::move(data));
+    CHECK(view.hit_test_content(2, 4, 24, 80, agent::ui::TuiPage::tools, 0, false));
+    CHECK(!view.hit_test_content(2, 19, 24, 80, agent::ui::TuiPage::tools, 0, false));
+}
+
+TEST(ux11, subsection_enter_and_click_share_open_switch_and_close_transitions)
+{
+    agent::ui::TuiNavigation by_enter;
+    agent::ui::TuiNavigation by_click;
+    for (auto* nav : {&by_enter, &by_click}) {
+        nav->select(agent::ui::TuiPage::configuration);
+        nav->set_focus(agent::ui::TuiFocus::menu);
+    }
+    CHECK(by_enter.select_subsection(0));
+    CHECK(by_enter.activate_subsection());
+    CHECK(by_click.select_subsection(0));
+    CHECK(by_click.activate_subsection());
+    CHECK_EQ(by_enter.subsection_open(), by_click.subsection_open());
+    CHECK(by_enter.select_subsection(1));
+    CHECK(by_enter.activate_subsection());
+    CHECK(by_click.select_subsection(1));
+    CHECK(by_click.activate_subsection());
+    CHECK_EQ(by_enter.subsection_index(), by_click.subsection_index());
+    CHECK_EQ(by_enter.subsection_open(), by_click.subsection_open());
+    CHECK(by_enter.select_subsection(2));
+    CHECK(by_click.select_subsection(2));
+    CHECK(by_enter.subsection_open() == false);
+    CHECK(by_enter.close_subsection());
+    CHECK(by_click.close_subsection());
+    CHECK_EQ(by_enter.subsection_open(), by_click.subsection_open());
+    CHECK(by_enter.select_subsection(0));
+    CHECK(by_click.select_subsection(0));
+    CHECK(by_enter.activate_subsection());
+    CHECK(by_click.activate_subsection());
+    CHECK(by_enter.activate_subsection());
+    CHECK(by_click.activate_subsection());
+    CHECK_EQ(by_enter.subsection_open(), by_click.subsection_open());
+}
+
+TEST(ux11, markdown_projection_formats_safe_subset_and_keeps_source_immutable)
+{
+    agent::ui::TuiView view;
+    const std::string source = "# Heading\n\n**bold** and `code` [docs](https://example.test)\n- item\n> quote\n";
+    view.append_assistant_delta(source);
+    const auto before = view.messages().back().text;
+    const auto rows = view.rendered_styled_conversation_rows(100);
+    CHECK(rows[0].kind == agent::ui::MarkdownLineKind::heading);
+    CHECK(rows[2].kind == agent::ui::MarkdownLineKind::emphasis);
+    CHECK(rows[2].text.find("bold and [code] docs <https://example.test>") != std::string::npos);
+    CHECK(rows[3].kind == agent::ui::MarkdownLineKind::list);
+    CHECK(rows[4].kind == agent::ui::MarkdownLineKind::quote);
+    CHECK_EQ(view.messages().back().text, before);
+    view.set_markdown_enabled(false);
+    const auto plain = view.rendered_styled_conversation_rows(100);
+    CHECK_EQ(plain[0].text, "LOFITERM Bot: # Heading");
+    CHECK_EQ(plain[2].text, "              **bold** and `code` [docs](https://example.test)");
+    CHECK_EQ(view.messages().back().text, before);
+    const auto underscore_identifier = agent::ui::present_markdown("LLM_MODEL_name", true);
+    CHECK(underscore_identifier.front().kind == agent::ui::MarkdownLineKind::paragraph);
+    CHECK_EQ(underscore_identifier.front().text, "LLM_MODEL_name");
+    const auto italic = agent::ui::present_markdown("_italic_", true);
+    CHECK(italic.front().kind == agent::ui::MarkdownLineKind::emphasis);
+    CHECK_EQ(italic.front().text, "italic");
+}
+
+TEST(ux11, markdown_code_fences_are_language_tagged_and_unfinished_content_stays_literal)
+{
+    const auto complete = agent::ui::present_markdown("```CPP\nint x = 1;\n```", true);
+    CHECK_EQ(complete.size(), std::size_t(1));
+    CHECK(complete[0].kind == agent::ui::MarkdownLineKind::code);
+    CHECK_EQ(complete[0].language, "cpp");
+    const auto unfinished = agent::ui::present_markdown("```python\nprint(1)\n", true);
+    CHECK_EQ(unfinished.size(), std::size_t(3));
+    CHECK(unfinished[0].kind == agent::ui::MarkdownLineKind::raw);
+    CHECK_EQ(unfinished[0].text, "```python");
+}
+
+TEST(ux11, markdown_stream_fragmentation_preserves_source_and_recognized_language_labels)
+{
+    agent::ui::TuiView view;
+    view.append_assistant_delta("## Ti");
+    view.append_assistant_delta("tle\n\n```py");
+    view.append_assistant_delta("thon\nprint('café')\n```\n");
+    CHECK_EQ(view.messages().back().text, "## Title\n\n```python\nprint('café')\n```\n");
+    const auto rows = view.rendered_styled_conversation_rows(100);
+    CHECK(rows[0].text.find("Title") != std::string::npos);
+    CHECK(rows[2].kind == agent::ui::MarkdownLineKind::code);
+    CHECK_EQ(rows[2].language, "python");
+}
+
+TEST(ux11, markdown_code_blocks_retain_the_requested_supported_language)
+{
+    for (const std::string_view language : {"cpp", "python", "bash", "json", "yaml", "diff"}) {
+        const auto lines = agent::ui::present_markdown("```" + std::string(language) + "\nvalue\n```", true);
+        CHECK_EQ(lines.size(), std::size_t(1));
+        CHECK(lines.front().kind == agent::ui::MarkdownLineKind::code);
+        CHECK_EQ(lines.front().language, language);
+        CHECK_EQ(lines.front().text, "value");
+    }
+}
+
 TEST(tui4a, every_page_has_a_compact_visible_projection)
 {
     agent::ui::TuiView view;
@@ -103,8 +285,9 @@ TEST(tui4a, configuration_projection_redacts_endpoint_credentials_and_api_key)
     const auto data = agent::ui::make_tui_view_data(config, tools);
     agent::ui::TuiView view;
     view.set_view_data(data);
-    const auto rows = view.rendered_page_rows(agent::ui::TuiPage::configuration, 120);
-    const auto rendered = rows.empty() ? std::string{} : rows.front() + (rows.size() > 1 ? rows[1] : "");
+    const auto rows = view.rendered_page_rows(agent::ui::TuiPage::configuration, 120, 0, true);
+    std::string rendered;
+    for (const auto& row : rows) rendered += row + '\n';
     CHECK(data.endpoint_origin == "https://example.test:8443");
     CHECK(data.api_key_configured);
     bool has_password = false;
@@ -163,7 +346,7 @@ TEST(tui4a, diagnostics_projection_contains_only_observed_entries)
 TEST(tui4a, help_projection_matches_current_key_contract)
 {
     agent::ui::TuiView view;
-    const auto rows = view.rendered_page_rows(agent::ui::TuiPage::help, 120);
+    const auto rows = view.rendered_page_rows(agent::ui::TuiPage::help, 120, 1, true);
     std::string joined;
     for (const auto& row : rows) joined += row + '\n';
     CHECK(joined.find("F1-F6") != std::string::npos);
@@ -213,22 +396,22 @@ TEST(tui4a, utf8_accents_combining_and_wide_characters_survive_wrap_and_resize)
     for (std::size_t i = 0; i < narrow.size(); ++i) {
         const auto& row = narrow[i];
         if (i == 0) {
-            CHECK(row.starts_with("Agent: "));
-            reconstructed += row.substr(7);
+            CHECK(row.starts_with("Bot: "));
+            reconstructed += row.substr(5);
         } else {
-            CHECK(row.starts_with("       "));
-            reconstructed += row.substr(7);
+            CHECK(row.starts_with("     "));
+            reconstructed += row.substr(5);
         }
     }
     CHECK_EQ(reconstructed, text);
 
     const auto wide = view.rendered_conversation_rows(80);
     CHECK_EQ(wide.size(), std::size_t(1));
-    CHECK_EQ(wide.front(), "Agent: " + text);
+    CHECK_EQ(wide.front(), "LOFITERM Bot: " + text);
     view.on_resize(10, 2);
     view.on_resize(80, 18);
     const auto resized = view.rendered_conversation_rows(80);
-    CHECK_EQ(resized.front(), "Agent: " + text);
+    CHECK_EQ(resized.front(), "LOFITERM Bot: " + text);
 }
 
 TEST(tui4a, panel_scroll_position_is_kept_per_view)
@@ -332,4 +515,87 @@ TEST(tui4a, pty_navigation_preserves_draft_and_receives_reply_off_conversation)
     CHECK(output.find("Tools") != std::string::npos);
     CHECK(output.find("réponse 漢字 👩‍💻 while viewing Tools") != std::string::npos);
     CHECK(output.find("\033[?1049l") != std::string::npos);
+}
+
+TEST(ux11, pty_mouse_click_selects_tab_and_keyboard_still_quits)
+{
+    MockHttpServer server;
+    int master = -1;
+    winsize size{}; size.ws_row = 20; size.ws_col = 60;
+    const pid_t child = ::forkpty(&master, nullptr, nullptr, &size);
+    CHECK(child >= 0);
+    if (child == 0) {
+        const auto driver = std::filesystem::read_symlink("/proc/self/exe").parent_path() / "tui_pty_driver";
+        ::setenv("TERM", "xterm-256color", 1);
+        ::setenv("LC_ALL", "C.UTF-8", 1);
+        ::execl(driver.c_str(), driver.c_str(), server.url("/v1/chat/completions").c_str(), "normal", nullptr);
+        _exit(127);
+    }
+    std::string output;
+    const auto read_for = [&](std::chrono::milliseconds duration) {
+        const auto deadline = std::chrono::steady_clock::now() + duration;
+        while (std::chrono::steady_clock::now() < deadline) {
+            pollfd descriptor{master, POLLIN, 0};
+            if (::poll(&descriptor, 1, 20) > 0 && (descriptor.revents & POLLIN)) {
+                char buffer[2048];
+                const auto count = ::read(master, buffer, sizeof(buffer));
+                if (count > 0) output.append(buffer, static_cast<std::size_t>(count));
+            }
+        }
+    };
+    read_for(std::chrono::milliseconds(200));
+    CHECK(output.find("Declared tools:") == std::string::npos);
+    const auto before_header_click = output.size();
+    const std::string click_title = "\033[<0;20;4M\033[<0;20;4m";
+    static_cast<void>(::write(master, click_title.data(), click_title.size()));
+    read_for(std::chrono::milliseconds(100));
+    CHECK_EQ(output.size(), before_header_click);
+    CHECK(output.find("[VIEW]") == std::string::npos);
+    const std::string click_empty_conversation = "\033[<0;20;5M\033[<0;20;5m";
+    static_cast<void>(::write(master, click_empty_conversation.data(), click_empty_conversation.size()));
+    read_for(std::chrono::milliseconds(100));
+    CHECK_EQ(output.size(), before_header_click);
+
+    const std::string click_f2 = "\033[<0;13;2M\033[<0;13;2m";
+    const auto before_tab_click = output.size();
+    static_cast<void>(::write(master, click_f2.data(), click_f2.size()));
+    read_for(std::chrono::milliseconds(150));
+    CHECK(output.substr(before_tab_click).find("MENU") != std::string::npos);
+    const std::string click_tool_text = "\033[<0;3;5M\033[<0;3;5m";
+    const auto before_content_click = output.size();
+    static_cast<void>(::write(master, click_tool_text.data(), click_tool_text.size()));
+    read_for(std::chrono::milliseconds(150));
+    CHECK(output.substr(before_content_click).find("VIEW") != std::string::npos);
+    const auto after_content_focus = output.size();
+    const auto before_repeat_content_click = output.size();
+    static_cast<void>(::write(master, click_tool_text.data(), click_tool_text.size()));
+    read_for(std::chrono::milliseconds(100));
+    CHECK_EQ(output.size(), before_repeat_content_click);
+    const std::string click_empty_panel = "\033[<0;55;19M\033[<0;55;19m";
+    static_cast<void>(::write(master, click_empty_panel.data(), click_empty_panel.size()));
+    read_for(std::chrono::milliseconds(100));
+    CHECK_EQ(output.size(), after_content_focus);
+
+    static_cast<void>(::write(master, "\033[17~", 5)); // F6 Help
+    read_for(std::chrono::milliseconds(100));
+    const std::string click_help_section = "\033[<0;10;6M\033[<0;10;6m";
+    static_cast<void>(::write(master, click_help_section.data(), click_help_section.size()));
+    read_for(std::chrono::milliseconds(150));
+    static_cast<void>(::write(master, "\033[21~", 5)); // keyboard F10 remains available
+    int status = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline && ::waitpid(child, &status, WNOHANG) == 0)
+        read_for(std::chrono::milliseconds(30));
+    if (::waitpid(child, &status, WNOHANG) == 0) {
+        static_cast<void>(::kill(child, SIGKILL));
+        static_cast<void>(::waitpid(child, &status, 0));
+    }
+    ::close(master);
+    CHECK(WIFEXITED(status));
+    CHECK_EQ(WEXITSTATUS(status), 0);
+    CHECK(output.find("Declared tools:") != std::string::npos);
+    CHECK(output.find("1. Type a message in Chat.") != std::string::npos);
+    CHECK(output.find("\033[?1003h") == std::string::npos);
+    CHECK(output.find("\033[?1049l") != std::string::npos);
+    CHECK(server.received_bodies().empty());
 }

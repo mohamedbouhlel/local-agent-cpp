@@ -30,6 +30,8 @@ private:
     bool handle_key(wint_t key, bool key_code);
     bool sync_approval_dialog();
     bool handle_approval_key(wint_t key, bool key_code);
+    void close_approval_dialog() noexcept;
+    bool flush_pending_assistant_delta();
     void submit_input();
     void request_exit();
 
@@ -42,6 +44,7 @@ private:
     TuiNavigation navigation_;
     TerminalTextSanitizer sanitizer_;
     std::string input_;
+    std::string pending_assistant_delta_;
     std::size_t cursor_byte_ = 0;
     std::optional<int> preferred_composer_column_;
     std::optional<std::future<TurnCompletion>> active_turn_;
@@ -51,6 +54,7 @@ private:
     std::string approval_confirmation_input_;
     std::size_t approval_scroll_ = 0;
     bool approval_expired_ = false;
+    bool approval_mouse_suspended_ = false;
     bool closing_ = false;
     bool event_details_incomplete_ = false;
     bool presentation_state_desynchronized_ = false;

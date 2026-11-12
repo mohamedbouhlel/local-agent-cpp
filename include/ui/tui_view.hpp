@@ -10,6 +10,7 @@
 #include <curses.h>
 #include "ui/bounded_history.hpp"
 #include "ui/metrics.hpp"
+#include "ui/markdown_presenter.hpp"
 #include "ui/tui_navigation.hpp"
 #include "ui/tui_view_data.hpp"
 #include "workspace_write_authorization.hpp"
@@ -35,6 +36,12 @@ struct TuiComposerRender {
     int cursor_column = 0;
 };
 
+struct TuiConversationRow {
+    std::string text;
+    MarkdownLineKind kind = MarkdownLineKind::paragraph;
+    std::string language;
+};
+
 class TuiView final {
 public:
     void set_status(std::string_view status);
@@ -47,11 +54,21 @@ public:
     void set_metrics(TurnMetrics metrics);
     void add_tool_activity(std::string_view safe_text);
     void add_diagnostic(std::string_view safe_text);
+    void set_markdown_enabled(bool enabled) noexcept;
+    bool markdown_enabled() const noexcept { return markdown_enabled_; }
 
     // Formatted transcript rows at the requested terminal width. Exposed so
     // wrapping and multiline role-label behavior can be tested deterministically.
     std::vector<std::string> rendered_conversation_rows(int columns) const;
     std::vector<std::string> rendered_page_rows(TuiPage page, int columns) const;
+    std::vector<std::string> rendered_page_rows(TuiPage page, int columns,
+                                                int subsection, bool subsection_open) const;
+    std::vector<TuiConversationRow> rendered_styled_conversation_rows(int columns) const;
+    int hit_test_tab(int x, int columns, TuiPage active, bool menu_focus = false) const;
+    bool hit_test_composer(int y, int rows) const noexcept;
+    int hit_test_subsection(TuiPage page, int y) const noexcept;
+    bool hit_test_content(int x, int y, int rows, int columns, TuiPage page,
+                          int subsection, bool subsection_open) const;
     TuiComposerRender rendered_composer(std::string_view input, std::size_t cursor_byte,
                                         int columns, int visible_rows) const;
     int composer_cursor_column(std::string_view input, std::size_t cursor_byte, int columns) const;
@@ -61,10 +78,10 @@ public:
                                                 bool to_end, int columns) const;
     std::string status_line(TuiPage page, TuiFocus focus, int columns) const;
 
-    void scroll_up();
-    void scroll_down();
-    void scroll_page_up(TuiPage page);
-    void scroll_page_down(TuiPage page);
+    bool scroll_up();
+    bool scroll_down();
+    bool scroll_page_up(TuiPage page);
+    bool scroll_page_down(TuiPage page);
     void on_resize(int columns, int chat_height);
     void draw(WINDOW* window, bool unicode_enabled, const TuiNavigation& navigation,
               std::string_view input, std::size_t cursor_byte);
@@ -83,6 +100,12 @@ public:
     const BoundedHistory& diagnostics() const noexcept { return diagnostics_; }
 
 private:
+    struct CachedConversationMessage {
+        bool valid = false;
+        std::vector<TuiConversationRow> rows;
+    };
+    void invalidate_conversation_cache() noexcept;
+    void invalidate_conversation_message(std::size_t index) noexcept;
     int chat_height_for(int rows) const noexcept;
     void preserve_anchor_after_content_change(std::size_t previous_rows);
     void add_panel_history(BoundedHistory& history, TuiPage page, std::string text);
@@ -101,6 +124,10 @@ private:
     int last_columns_ = 80;
     int last_chat_height_ = 1;
     std::size_t draw_count_ = 0;
+    bool markdown_enabled_ = true;
+    mutable int cached_conversation_columns_ = -1;
+    mutable bool cached_conversation_markdown_ = true;
+    mutable std::vector<CachedConversationMessage> conversation_cache_;
 };
 
 } // namespace agent::ui

@@ -1,4 +1,4 @@
-# Guide d'utilisation — agent-cpp
+# Guide d'utilisation — LOFITERM (agent-cpp)
 
 Ce guide suppose que le projet est déjà compilé. Pour l'installation, les
 dépendances système et le build, voir [README.md](README.md) — ce document
@@ -114,6 +114,37 @@ ne peut pas être incluse dans le bloc (limite approuvée).
 La source normative est la
 [spécification REPL-01 à REPL-09](docs/specifications/repl-multiline-requirements.md) ;
 l'implémentation se trouve dans `src/prompt_reader.cpp` et `src/main.cpp`.
+
+## 4.1 Interface LOFITERM ncursesw
+
+La CLI reste le mode par défaut. Lancez explicitement `./build/agent --ui=tui`
+dans un terminal interactif; `--ui=classic` sélectionne la CLI. F1 à F6
+sélectionnent Conversation, Outils, Activité, Diagnostics, Configuration et
+Aide. Tab change le focus, Échap ferme d'abord une rubrique ouverte puis
+revient à Conversation, F9 envoie depuis Conversation et F10 demande la
+fermeture. Enter ajoute une ligne au composeur lorsqu'il est focalisé. Une
+navigation ou un clic ne soumet jamais le texte et ne peut jamais approuver
+une écriture.
+
+Les onglets sélectionnent une vue à la souris si le terminal signale son
+support. Un clic dans le composeur lui donne le focus; la molette fait défiler
+le contenu actif. Toute action reste disponible au clavier.
+
+F5 Configuration et F6 Aide ont des rubriques sélectionnables. Utilisez les
+flèches puis Enter, ou cliquez la rubrique; Échap revient à la liste. La vue
+À propos n'affiche une version ou un commit que s'ils sont compilés dans le
+binaire; sinon elle indique qu'ils sont indisponibles. La configuration est en
+lecture seule et la clé API n'est jamais affichée.
+
+Dans Conversation, les réponses assistant sont présentées avec un sous-ensemble
+Markdown. `M` bascule entre cette présentation et le texte brut lorsque le
+focus est sur le contenu de Conversation. Les liens restent du texte; aucun
+HTML, code ou URL n'est exécuté ou ouvert. Les blocs de code reconnus sont
+colorés de manière légère pour C++, Python, Bash, JSON, YAML et diff; les
+autres langages restent lisibles en style code. Un bloc clôturé n'est formaté
+qu'après réception de son délimiteur fermant; un bloc encore ouvert reste
+littéral pendant le streaming. `NO_COLOR` désactive les couleurs sans retirer
+les libellés d'état. Le rendu exact dépend de la locale et du terminal.
 
 Les outils ne sont **pas** invocables manuellement depuis le REPL : c'est le
 LLM qui décide de les appeler pendant qu'il compose sa réponse.

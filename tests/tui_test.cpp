@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <poll.h>
+#include <optional>
 #include <regex>
 #include <string>
 #include <thread>
@@ -27,6 +28,8 @@
 namespace {
 struct TuiScreenSnapshot {
     std::vector<std::string> rows;
+    std::vector<chtype> title_attributes;
+    std::vector<chtype> first_content_attributes;
     int cursor_row = -1;
     int cursor_column = -1;
     bool partial_bold = false;
@@ -35,7 +38,9 @@ struct TuiScreenSnapshot {
 TuiScreenSnapshot draw_tui_screen(agent::ui::TuiView& view, std::string_view input, std::size_t cursor,
                                   int rows, int columns,
                                   agent::ui::TuiPage page = agent::ui::TuiPage::conversation,
-                                  bool force_no_color = false)
+                                  bool force_no_color = false,
+                                  agent::ui::TuiFocus focus = agent::ui::TuiFocus::composer,
+                                  std::optional<agent::ui::TuiFocus> redraw_focus = std::nullopt)
 {
     int master = -1, slave = -1;
     winsize size{};
@@ -71,7 +76,12 @@ TuiScreenSnapshot draw_tui_screen(agent::ui::TuiView& view, std::string_view inp
         static_cast<void>(::resizeterm(rows, columns));
         agent::ui::TuiNavigation navigation;
         navigation.select(page);
+        navigation.set_focus(focus);
         view.draw(stdscr, true, navigation, input, cursor);
+        if (redraw_focus) {
+            navigation.set_focus(*redraw_focus);
+            view.draw(stdscr, true, navigation, input, cursor);
+        }
         getyx(stdscr, result.cursor_row, result.cursor_column);
         result.rows.resize(static_cast<std::size_t>(rows));
         for (int y = 0; y < rows; ++y) {
@@ -79,6 +89,8 @@ TuiScreenSnapshot draw_tui_screen(agent::ui::TuiView& view, std::string_view inp
             line.reserve(static_cast<std::size_t>(columns));
             for (int x = 0; x < columns; ++x) {
                 const chtype cell = mvwinch(stdscr, y, x);
+                if (y == 3) result.title_attributes.push_back(cell & (A_ATTRIBUTES | A_COLOR));
+                if (y == 4) result.first_content_attributes.push_back(cell & (A_ATTRIBUTES | A_COLOR));
                 if (y == 2 && x < columns && (cell & A_CHARTEXT) != 0
                     && (cell & A_CHARTEXT) != static_cast<chtype>(' ')
                     && (cell & A_BOLD) != 0) result.partial_bold = true;
@@ -124,14 +136,69 @@ struct TuiApprovalRun {
     bool no_tool_request_before_typed_no_enter = false;
     bool no_file_before_typed_no_enter = false;
     bool expiry_notice_seen = false;
+    bool mouse_reporting_disabled = false;
+    bool mouse_reporting_restored = false;
+    bool writer_error_seen = false;
     std::string output;
 };
+
+void capture_mouse_reporting_transitions(TuiApprovalRun& result)
+{
+    constexpr std::string_view enabled = "\033[?1006;1000h";
+    constexpr std::string_view disabled = "\033[?1006;1000l";
+    const auto first_enabled = result.output.find(enabled);
+    const auto suspended = result.output.find(disabled);
+    result.mouse_reporting_disabled = suspended != std::string::npos;
+    result.mouse_reporting_restored = first_enabled != std::string::npos && suspended != std::string::npos
+        && result.output.find(enabled, suspended + disabled.size()) != std::string::npos;
+}
 
 std::string challenge_from_tui_output(const std::string& output)
 {
     static const std::regex pattern(R"(Confirm: yes ([0-9a-f]{32}))");
     std::smatch match;
     return std::regex_search(output, match, pattern) ? match[1].str() : std::string{};
+}
+
+std::string visible_pty_text(std::string_view output)
+{
+    std::string text;
+    for (std::size_t i = 0; i < output.size();) {
+        const auto byte = static_cast<unsigned char>(output[i]);
+        if (byte == 0x1b && i + 1 < output.size()) {
+            const auto next = static_cast<unsigned char>(output[i + 1]);
+            if (next == '[') {
+                i += 2;
+                while (i < output.size()) {
+                    const auto value = static_cast<unsigned char>(output[i++]);
+                    if (value >= 0x40 && value <= 0x7e) break;
+                }
+                continue;
+            }
+            if (next == ']') {
+                i += 2;
+                while (i < output.size()) {
+                    if (output[i] == '\a') { ++i; break; }
+                    if (output[i] == '\x1b' && i + 1 < output.size() && output[i + 1] == '\\') {
+                        i += 2;
+                        break;
+                    }
+                    ++i;
+                }
+                continue;
+            }
+            i += 2;
+            continue;
+        }
+        if (byte == '\r' || byte == '\n') {
+            text.push_back('\n');
+            ++i;
+            continue;
+        }
+        if (byte >= 0x20 && byte != 0x7f) text.push_back(static_cast<char>(byte));
+        ++i;
+    }
+    return text;
 }
 
 TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
@@ -193,6 +260,14 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
         else if (decision == "approve") {
             const auto challenge = challenge_from_tui_output(result.output);
             if (!challenge.empty()) write(approval_confirmation(challenge) + "\n");
+        } else if (decision == "approve-existing") {
+            const auto challenge = challenge_from_tui_output(result.output);
+            const auto target = working_directory / "workspace/nested/denied.txt";
+            std::filesystem::create_directories(target.parent_path());
+            std::ofstream existing(target, std::ios::binary);
+            existing << "preserve-existing-content";
+            existing.close();
+            if (!challenge.empty()) write(approval_confirmation(challenge) + "\n");
         } else if (decision == "typed-approve" || decision == "fast-approve") {
             const auto challenge = challenge_from_tui_output(result.output);
             if (!challenge.empty()) {
@@ -212,14 +287,15 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
         } else if (decision == "typed-no") {
             write("n");
             write("o");
-            // Synchronize on the PTY's rendered dialog state, not a fixed
-            // pause that can expire before ncurses flushes its redraw.
+            // Synchronize on visible dialog text. ncurses may emit the label
+            // and changed input cells in separate updates with cursor controls
+            // between them, so compare the control-free text projection.
             const auto rendered_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-            while (result.output.find("Input: no") == std::string::npos
+            while (visible_pty_text(result.output).find("Input: no") == std::string::npos
                    && std::chrono::steady_clock::now() < rendered_deadline) {
                 read_for(std::chrono::milliseconds(20));
             }
-            result.dialog_kept_typed_no = result.output.find("Input: no") != std::string::npos;
+            result.dialog_kept_typed_no = visible_pty_text(result.output).find("Input: no") != std::string::npos;
             result.no_tool_request_before_typed_no_enter = server.received_bodies().size() == 1;
             result.no_file_before_typed_no_enter =
                 !std::filesystem::exists(working_directory / "workspace/nested/denied.txt");
@@ -236,6 +312,13 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
             write("e");
             write("s");
             write("\033[21~");
+        } else if (decision == "mouse-only") {
+            const std::string click = "\033[<0;20;10M\033[<0;20;10m";
+            write(click);
+            result.no_file_before_typed_no_enter =
+                !std::filesystem::exists(working_directory / "workspace/nested/denied.txt");
+            write("\033[21~");
+            close_while_pending = true;
         } else if (decision == "expire-typed") {
             write("y");
             write("e");
@@ -272,6 +355,8 @@ TuiApprovalRun run_tui_write_decision(MockHttpServer& server,
         static_cast<void>(::kill(child, SIGKILL));
         (void)::waitpid(child, &result.status, 0);
     }
+    capture_mouse_reporting_transitions(result);
+    result.writer_error_seen = result.output.find("Tool failed: write_file") != std::string::npos;
     (void)::close(master);
     return result;
 }
@@ -292,10 +377,19 @@ TEST(tui3, typed_no_is_retained_until_enter_without_leaking_to_composer)
     CHECK(run.exited);
     CHECK(run.dialog_seen);
     CHECK(run.dialog_kept_typed_no);
+    CHECK(run.mouse_reporting_disabled);
+    CHECK(run.mouse_reporting_restored);
     CHECK(run.no_tool_request_before_typed_no_enter);
     CHECK(run.no_file_before_typed_no_enter);
     CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
     CHECK_EQ(server.received_bodies().size(), std::size_t(2));
+}
+
+TEST(tui3, pty_dialog_text_oracle_joins_ncurses_cursor_updates)
+{
+    const std::string rendered_in_two_updates =
+        "\033[24;1HInput: \033[24;8Hno\033[?25h";
+    CHECK_EQ(visible_pty_text(rendered_in_two_updates), std::string("Input: no"));
 }
 
 TEST(tui3, multiline_composer_keeps_cursor_and_visible_content_inside_its_viewport)
@@ -369,6 +463,19 @@ TEST(tui4a, all_six_pages_show_their_active_navigation_and_section_title)
         CHECK(screen.rows[1].find(selected[static_cast<std::size_t>(i)]) != std::string::npos);
         CHECK(screen.rows[3].find(titles[static_cast<std::size_t>(i)]) != std::string::npos);
     }
+}
+
+TEST(ux11, focus_redraw_keeps_conversation_title_style_unchanged)
+{
+    agent::ui::TuiView view;
+    const auto baseline = draw_tui_screen(view, "text remains unchanged", 0, 24, 80,
+        agent::ui::TuiPage::conversation, false, agent::ui::TuiFocus::composer);
+    const auto after_content_focus = draw_tui_screen(view, "text remains unchanged", 0, 24, 80,
+        agent::ui::TuiPage::conversation, false, agent::ui::TuiFocus::composer,
+        agent::ui::TuiFocus::content);
+    CHECK_EQ(after_content_focus.rows[3], baseline.rows[3]);
+    CHECK(after_content_focus.title_attributes == baseline.title_attributes);
+    CHECK(after_content_focus.first_content_attributes == baseline.first_content_attributes);
 }
 
 TEST(tui4a, partial_is_explicit_and_bold_without_color)
@@ -583,6 +690,8 @@ TEST(tui3, typed_confirmation_approves_only_after_enter)
     const auto run = run_tui_write_decision(server, working_directory.path(), "typed-approve", false);
     CHECK(run.exited);
     CHECK(run.dialog_seen);
+    CHECK(run.mouse_reporting_disabled);
+    CHECK(run.mouse_reporting_restored);
     const auto file = working_directory.path() / "workspace/nested/typed.txt";
     CHECK(std::filesystem::exists(file));
     if (std::filesystem::exists(file)) {
@@ -623,6 +732,8 @@ TEST(tui3, partial_confirmation_then_f10_cancels_without_creation)
     const auto run = run_tui_write_decision(server, working_directory.path(), "partial-close", false);
     CHECK(run.exited);
     CHECK(run.dialog_seen);
+    CHECK(run.mouse_reporting_disabled);
+    CHECK(run.mouse_reporting_restored);
     CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
     CHECK_EQ(server.received_bodies().size(), std::size_t(2));
 }
@@ -642,6 +753,8 @@ TEST(tui3, expiry_during_partial_confirmation_quarantines_input)
     CHECK(run.exited);
     CHECK(run.dialog_seen);
     CHECK(run.expiry_notice_seen);
+    CHECK(run.mouse_reporting_disabled);
+    CHECK(run.mouse_reporting_restored);
     CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
     CHECK_EQ(server.received_bodies().size(), std::size_t(2));
 }
@@ -733,7 +846,7 @@ TEST(tui3, replaces_partial_response_instead_of_appending)
     CHECK_EQ(view.messages().back().text, std::string("complete\nanswer"));
     CHECK(!view.messages().back().incomplete);
     CHECK(view.rendered_conversation_rows(80)
-          == std::vector<std::string>({"Agent: complete", "       answer"}));
+          == std::vector<std::string>({"LOFITERM Bot: complete", "              answer"}));
 }
 
 TEST(tui3, multiline_messages_label_only_the_first_physical_line)
@@ -744,7 +857,7 @@ TEST(tui3, multiline_messages_label_only_the_first_physical_line)
 
     CHECK(view.rendered_conversation_rows(80) == std::vector<std::string>({
         "You: first", "     ", "       third", "     ",
-        "Agent: reply", "       second",
+        "LOFITERM Bot: reply", "              second",
     }));
     CHECK_EQ(view.messages().size(), std::size_t(2));
     CHECK_EQ(view.messages()[0].text, std::string("first\n\n  third\n"));
@@ -759,7 +872,7 @@ TEST(tui3, incomplete_multiline_message_preserves_blank_rows)
 
     CHECK_EQ(view.messages().back().text, std::string("partial\n\n"));
     CHECK(view.rendered_conversation_rows(80)
-          == std::vector<std::string>({"Agent: partial", "       ", "       ", "       [incomplete]"}));
+          == std::vector<std::string>({"LOFITERM Bot: partial", "              ", "              ", "              [incomplete]"}));
 }
 
 TEST(tui3, sse_fragment_boundaries_do_not_change_multiline_rendering)
@@ -773,7 +886,7 @@ TEST(tui3, sse_fragment_boundaries_do_not_change_multiline_rendering)
     CHECK_EQ(view.messages().size(), std::size_t(1));
     CHECK_EQ(view.messages().back().text, std::string("hello\nworld"));
     CHECK(view.rendered_conversation_rows(80)
-          == std::vector<std::string>({"Agent: hello", "       world"}));
+          == std::vector<std::string>({"LOFITERM Bot: hello", "              world"}));
 }
 
 TEST(tui3, wrapped_continuations_are_indented_under_the_message_text)
@@ -781,8 +894,14 @@ TEST(tui3, wrapped_continuations_are_indented_under_the_message_text)
     agent::ui::TuiView view;
     view.append_assistant_delta("abcdefghijklm");
 
-    CHECK(view.rendered_conversation_rows(12)
-          == std::vector<std::string>({"Agent: abc", "       def", "       ghi", "       jkl", "       m"}));
+    const auto rows = view.rendered_conversation_rows(12);
+    CHECK(rows.front().starts_with("Bot: "));
+    std::string reconstructed = rows.front().substr(5);
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        CHECK(rows[i].starts_with("     "));
+        reconstructed += rows[i].substr(5);
+    }
+    CHECK_EQ(reconstructed, "abcdefghijklm");
     CHECK_EQ(view.messages().back().text, std::string("abcdefghijklm"));
 }
 
@@ -792,12 +911,18 @@ TEST(tui3, resize_during_streaming_reflows_without_changing_message_text)
     view.on_resize(40, 10);
     view.append_assistant_delta("alpha beta gamma");
     const auto before = view.messages().back().text;
-    CHECK(view.rendered_conversation_rows(40) == std::vector<std::string>({"Agent: alpha beta gamma"}));
+    CHECK(view.rendered_conversation_rows(40) == std::vector<std::string>({"LOFITERM Bot: alpha beta gamma"}));
 
     view.on_resize(20, 4);
     view.append_assistant_delta(" delta");
-    CHECK(view.rendered_conversation_rows(20)
-          == std::vector<std::string>({"Agent: alpha beta ", "       gamma delta"}));
+    const auto rows = view.rendered_conversation_rows(20);
+    CHECK(rows.front().starts_with("LOFITERM Bot: "));
+    std::string reconstructed = rows.front().substr(std::string("LOFITERM Bot: ").size());
+    for (std::size_t i = 1; i < rows.size(); ++i) {
+        CHECK(rows[i].starts_with("              "));
+        reconstructed += rows[i].substr(14);
+    }
+    CHECK_EQ(reconstructed, "alpha beta gamma delta");
     CHECK_EQ(view.messages().back().text, before + " delta");
 }
 
@@ -811,8 +936,8 @@ TEST(tui3, consecutive_turns_keep_role_and_message_boundaries)
     view.append_assistant_delta("answer two");
 
     CHECK(view.rendered_conversation_rows(80) == std::vector<std::string>({
-        "You: question one", "Agent: answer one",
-        "You: question two", "Agent: answer two",
+        "You: question one", "LOFITERM Bot: answer one",
+        "You: question two", "LOFITERM Bot: answer two",
     }));
     CHECK_EQ(view.messages().size(), std::size_t(4));
 }
@@ -1011,6 +1136,49 @@ TEST(tui3, write_approval_dialog_creates_only_after_explicit_y)
     CHECK_EQ(requests.size(), std::size_t(2));
 }
 
+TEST(ux11, mouse_click_cannot_approve_write_request)
+{
+    tests::TempDir working_directory("tui_write_mouse_denied");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-mouse", "nested/denied.txt", "must not be written");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("write cancelled") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "mouse-only", false);
+    CHECK(run.exited);
+    CHECK(WIFEXITED(run.status));
+    CHECK_EQ(WEXITSTATUS(run.status), 0);
+    CHECK(run.dialog_seen);
+    CHECK(run.no_file_before_typed_no_enter);
+    CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
+    CHECK_EQ(server.received_bodies().size(), std::size_t(2));
+}
+
+TEST(ux11, approval_error_after_explicit_confirmation_restores_mouse_reporting)
+{
+    tests::TempDir working_directory("tui_write_approval_writer_error");
+    MockHttpServer server;
+    MockHttpServer::Response call;
+    call.body = sse_write_call("call-pty-existing-target", "nested/denied.txt", "must not overwrite");
+    server.enqueue(std::move(call));
+    MockHttpServer::Response answer;
+    answer.body = sse_delta("write error handled") + "data: [DONE]\n\n";
+    server.enqueue(std::move(answer));
+
+    const auto run = run_tui_write_decision(server, working_directory.path(), "approve-existing", false);
+    CHECK(run.exited);
+    CHECK(run.dialog_seen);
+    CHECK(run.mouse_reporting_disabled);
+    CHECK(run.mouse_reporting_restored);
+    CHECK(run.writer_error_seen);
+    std::ifstream existing(working_directory.path() / "workspace/nested/denied.txt", std::ios::binary);
+    CHECK_EQ(std::string(std::istreambuf_iterator<char>(existing), std::istreambuf_iterator<char>()),
+             std::string("preserve-existing-content"));
+}
+
 TEST(tui3, closing_during_write_approval_cancels_without_creating_parent)
 {
     constexpr int repetitions = 30;
@@ -1029,6 +1197,8 @@ TEST(tui3, closing_during_write_approval_cancels_without_creating_parent)
         CHECK(WIFEXITED(run.status));
         CHECK_EQ(WEXITSTATUS(run.status), 0);
         CHECK(run.dialog_seen);
+        CHECK(run.mouse_reporting_disabled);
+        CHECK(run.mouse_reporting_restored);
         CHECK(run.output.find("no file was created") != std::string::npos);
         CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
         const auto requests = server.received_bodies();
@@ -1102,6 +1272,8 @@ TEST(tui3, compact_terminal_cannot_approve_uninspectable_write_content)
     CHECK(WIFEXITED(run.status));
     CHECK_EQ(WEXITSTATUS(run.status), 0);
     CHECK(run.dialog_seen);
+    CHECK(run.mouse_reporting_disabled);
+    CHECK(run.mouse_reporting_restored);
     CHECK(!std::filesystem::exists(working_directory.path() / "workspace/nested"));
     const auto requests = server.received_bodies();
     CHECK_EQ(requests.size(), std::size_t(2));

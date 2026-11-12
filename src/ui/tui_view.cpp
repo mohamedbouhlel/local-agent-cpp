@@ -14,7 +14,9 @@
 
 namespace agent::ui {
 namespace {
-enum class VisualStyle { normal, muted, brand, selected, peach, mint, pink, status };
+enum class VisualStyle { normal, muted, brand, selected, peach, mint, pink, status, heading, quote, list, code, emphasis };
+
+int width_of(std::string_view text);
 
 bool initialize_colors()
 {
@@ -36,7 +38,7 @@ int style_attributes(VisualStyle style, bool colors)
 {
     if (!colors) {
         if (style == VisualStyle::selected || style == VisualStyle::brand) return A_REVERSE | A_BOLD;
-        if (style == VisualStyle::status || style == VisualStyle::pink) return A_BOLD;
+        if (style == VisualStyle::status || style == VisualStyle::pink || style == VisualStyle::heading) return A_BOLD;
         return A_NORMAL;
     }
     switch (style) {
@@ -48,6 +50,11 @@ int style_attributes(VisualStyle style, bool colors)
     case VisualStyle::mint: return COLOR_PAIR(5) | A_BOLD;
     case VisualStyle::pink: return COLOR_PAIR(6) | A_BOLD;
     case VisualStyle::status: return COLOR_PAIR(7) | A_BOLD;
+    case VisualStyle::heading: return COLOR_PAIR(4) | A_BOLD;
+    case VisualStyle::quote: return COLOR_PAIR(2) | A_ITALIC;
+    case VisualStyle::list: return COLOR_PAIR(5);
+    case VisualStyle::code: return COLOR_PAIR(1) | A_DIM;
+    case VisualStyle::emphasis: return COLOR_PAIR(3) | A_BOLD;
     }
     return A_NORMAL;
 }
@@ -95,6 +102,95 @@ void draw_line(WINDOW* window, int row, std::string_view text, int columns,
     draw_at(window, row, 0, text, columns - 1, style, colors);
 }
 
+VisualStyle markdown_style(MarkdownLineKind kind)
+{
+    switch (kind) {
+    case MarkdownLineKind::heading: return VisualStyle::heading;
+    case MarkdownLineKind::quote: return VisualStyle::quote;
+    case MarkdownLineKind::list: return VisualStyle::list;
+    case MarkdownLineKind::separator: return VisualStyle::muted;
+    case MarkdownLineKind::emphasis: return VisualStyle::emphasis;
+    case MarkdownLineKind::inline_code: return VisualStyle::code;
+    case MarkdownLineKind::link: return VisualStyle::brand;
+    case MarkdownLineKind::code: return VisualStyle::code;
+    case MarkdownLineKind::paragraph:
+    case MarkdownLineKind::raw: return VisualStyle::normal;
+    }
+    return VisualStyle::normal;
+}
+
+bool language_supported(std::string_view language)
+{
+    return language == "cpp" || language == "c++" || language == "python" || language == "py"
+        || language == "bash" || language == "sh" || language == "json"
+        || language == "yaml" || language == "yml" || language == "diff";
+}
+
+bool syntax_keyword(std::string_view word, std::string_view language)
+{
+    static constexpr std::string_view common[] = {
+        "if", "else", "for", "while", "return", "class", "struct", "const", "auto",
+        "void", "int", "bool", "true", "false", "null", "nullptr", "def", "import",
+        "from", "as", "in", "not", "and", "or", "function", "let", "var", "echo",
+        "select", "include", "namespace", "public", "private", "static", "try", "catch",
+    };
+    if (!language_supported(language)) return false;
+    return std::find(std::begin(common), std::end(common), word) != std::end(common);
+}
+
+void draw_code_line(WINDOW* window, int row, int column, std::string_view text, int max_cells,
+                    std::string_view language, bool colors)
+{
+    if (!language_supported(language) || language == "diff") {
+        const auto style = language == "diff" && !text.empty() && text.front() == '+' ? VisualStyle::mint
+            : language == "diff" && !text.empty() && text.front() == '-' ? VisualStyle::pink : VisualStyle::code;
+        draw_at(window, row, column, text, max_cells, style, colors);
+        return;
+    }
+    std::size_t i = 0;
+    int cell = column;
+    while (i < text.size() && cell < column + max_cells) {
+        const auto start = i;
+        VisualStyle style = VisualStyle::code;
+        if ((text[i] == '#' && (language == "python" || language == "bash" || language == "sh" || language == "yaml" || language == "yml"))
+            || (text[i] == '/' && i + 1 < text.size() && text[i + 1] == '/')) {
+            i = text.size(); style = VisualStyle::muted;
+        } else if (text[i] == '"' || text[i] == '\'') {
+            const char quote = text[i++];
+            while (i < text.size()) {
+                if (text[i] == '\\' && i + 1 < text.size()) { i += 2; continue; }
+                if (text[i++] == quote) break;
+            }
+            style = VisualStyle::mint;
+        } else if (std::isdigit(static_cast<unsigned char>(text[i]))) {
+            while (i < text.size() && (std::isdigit(static_cast<unsigned char>(text[i])) || text[i] == '.')) ++i;
+            style = VisualStyle::peach;
+        } else if (std::isalpha(static_cast<unsigned char>(text[i])) || text[i] == '_') {
+            while (i < text.size() && (std::isalnum(static_cast<unsigned char>(text[i])) || text[i] == '_')) ++i;
+            if (syntax_keyword(text.substr(start, i - start), language)) style = VisualStyle::brand;
+        } else {
+            ++i;
+            if (std::string_view("{}[]():,.;=+-*/<>!").find(text[start]) != std::string_view::npos)
+                style = VisualStyle::pink;
+        }
+        const auto byte = static_cast<unsigned char>(text[start]);
+        if (byte >= 0x80) {
+            std::mbstate_t state{};
+            wchar_t wc{};
+            const auto count = std::mbrtowc(&wc, text.data() + start, text.size() - start, &state);
+            if (count != static_cast<std::size_t>(-1) && count != static_cast<std::size_t>(-2) && count != 0) {
+                i = start + count;
+                style = VisualStyle::code;
+            }
+        }
+        const auto token = text.substr(start, i - start);
+        const int width = width_of(token);
+        if (width <= 0) continue;
+        draw_at(window, row, cell, token, column + max_cells - cell, style, colors);
+        cell += width;
+    }
+}
+
 std::string page_title(TuiPage page)
 {
     switch (page) {
@@ -109,12 +205,44 @@ std::string page_title(TuiPage page)
     return "LOFITERM";
 }
 
+std::string ascii_markdown_fallback(std::string_view text)
+{
+    std::string result;
+    for (std::size_t i = 0; i < text.size();) {
+        if (text.substr(i).starts_with("─")) { result.push_back('-'); i += std::string_view("─").size(); }
+        else if (text.substr(i).starts_with("•")) { result.push_back('*'); i += std::string_view("•").size(); }
+        else if (text.substr(i).starts_with("│")) { result.push_back('|'); i += std::string_view("│").size(); }
+        else result.push_back(text[i++]);
+    }
+    return result;
+}
+
 std::string navigation_label(int key, std::string_view label, bool selected, bool compact)
 {
     const std::string short_label = compact ? std::string(label.substr(0, std::min<std::size_t>(4, label.size())))
                                              : std::string(label);
     return selected ? "[F" + std::to_string(key) + " " + short_label + "]"
                     : " F" + std::to_string(key) + " " + short_label + " ";
+}
+
+struct TabGeometry { int page; int column; int width; std::string label; };
+
+std::vector<TabGeometry> tab_geometry(int columns, TuiPage active, bool menu_focus)
+{
+    const bool compact = columns < 100;
+    const std::array<std::string_view, 6> labels = {"CHAT", "TOOLS", "ACTIVITY", "DIAG", "CONFIG", "HELP"};
+    int column = menu_focus ? width_of("MENU") : 0;
+    std::vector<TabGeometry> tabs;
+    for (int i = 0; i < 6 && column < columns - 1; ++i) {
+        if (column > 0) ++column;
+        auto label = navigation_label(i + 1, labels[static_cast<std::size_t>(i)],
+                                      static_cast<int>(active) == i, compact);
+        const int width = std::min(width_of(label), columns - 1 - column);
+        if (width <= 0) break;
+        column += width;
+        tabs.push_back({i, column - width, width, std::move(label)});
+    }
+    return tabs;
 }
 
 std::vector<std::string> lines(std::string_view text)
@@ -322,12 +450,30 @@ std::string exact_count_or_unavailable(std::uint64_t value, bool overflowed)
 }
 
 void TuiView::set_status(std::string_view status) { status_ = status; }
+void TuiView::set_markdown_enabled(bool enabled) noexcept
+{
+    if (markdown_enabled_ == enabled) return;
+    markdown_enabled_ = enabled;
+    invalidate_conversation_cache();
+}
+
+void TuiView::invalidate_conversation_cache() noexcept
+{
+    cached_conversation_columns_ = -1;
+    conversation_cache_.clear();
+}
+
+void TuiView::invalidate_conversation_message(std::size_t index) noexcept
+{
+    if (index < conversation_cache_.size()) conversation_cache_[index].valid = false;
+}
+
 void TuiView::add_user_message(std::string text)
 {
-    const auto old_rows = rendered_conversation_rows(last_columns_).size();
+    const auto old_rows = follow_bottom_ ? 0 : rendered_conversation_rows(last_columns_).size();
     messages_.push_back({TuiMessageKind::user, std::move(text), false});
     active_assistant_.reset();
-    preserve_anchor_after_content_change(old_rows);
+    if (!follow_bottom_) preserve_anchor_after_content_change(old_rows);
 }
 void TuiView::append_assistant_delta(std::string_view text)
 {
@@ -335,13 +481,15 @@ void TuiView::append_assistant_delta(std::string_view text)
         messages_.push_back({TuiMessageKind::assistant, {}, false});
         active_assistant_ = messages_.size() - 1;
     }
-    const auto old_rows = rendered_conversation_rows(last_columns_).size();
+    const auto old_rows = follow_bottom_ ? 0 : rendered_conversation_rows(last_columns_).size();
     messages_[*active_assistant_].text.append(text);
-    preserve_anchor_after_content_change(old_rows);
+    invalidate_conversation_message(*active_assistant_);
+    if (follow_bottom_) scroll_offset_ = 0;
+    else preserve_anchor_after_content_change(old_rows);
 }
 void TuiView::replace_assistant_response(std::string text)
 {
-    const auto old_rows = rendered_conversation_rows(last_columns_).size();
+    const auto old_rows = follow_bottom_ ? 0 : rendered_conversation_rows(last_columns_).size();
     if (!active_assistant_) {
         messages_.push_back({TuiMessageKind::assistant, std::move(text), false});
         active_assistant_ = messages_.size() - 1;
@@ -349,18 +497,23 @@ void TuiView::replace_assistant_response(std::string text)
         messages_[*active_assistant_].text = std::move(text);
     }
     messages_[*active_assistant_].incomplete = false;
-    preserve_anchor_after_content_change(old_rows);
+    invalidate_conversation_message(*active_assistant_);
+    if (follow_bottom_) scroll_offset_ = 0;
+    else preserve_anchor_after_content_change(old_rows);
 }
 void TuiView::finish_assistant(bool complete)
 {
-    if (active_assistant_) messages_[*active_assistant_].incomplete = !complete;
+    if (active_assistant_) {
+        messages_[*active_assistant_].incomplete = !complete;
+        invalidate_conversation_message(*active_assistant_);
+    }
     active_assistant_.reset();
 }
 void TuiView::add_notice(std::string_view text)
 {
-    const auto old_rows = rendered_conversation_rows(last_columns_).size();
+    const auto old_rows = follow_bottom_ ? 0 : rendered_conversation_rows(last_columns_).size();
     messages_.push_back({TuiMessageKind::notice, std::string(text), false});
-    preserve_anchor_after_content_change(old_rows);
+    if (!follow_bottom_) preserve_anchor_after_content_change(old_rows);
 }
 void TuiView::set_view_data(TuiViewData data) { view_data_ = std::move(data); }
 void TuiView::set_metrics(TurnMetrics metrics)
@@ -464,39 +617,52 @@ void TuiView::add_panel_history(BoundedHistory& history, TuiPage page, std::stri
     page_scroll_offsets_[index] = added_rows > max - page_scroll_offsets_[index]
         ? max : page_scroll_offsets_[index] + added_rows;
 }
-void TuiView::scroll_up()
+bool TuiView::scroll_up()
 {
+    const auto old_offset = scroll_offset_;
+    const bool old_follow = follow_bottom_;
     const auto row_count = rendered_conversation_rows(last_columns_).size();
     const auto maximum = row_count > static_cast<std::size_t>(last_chat_height_)
         ? row_count - static_cast<std::size_t>(last_chat_height_) : 0;
-    if (maximum == 0) return;
+    if (maximum == 0) return false;
     follow_bottom_ = false;
     scroll_offset_ = std::min(maximum, scroll_offset_ + 5);
+    return old_offset != scroll_offset_ || old_follow != follow_bottom_;
 }
-void TuiView::scroll_down()
+bool TuiView::scroll_down()
 {
+    const auto old_offset = scroll_offset_;
+    const bool old_follow = follow_bottom_;
     scroll_offset_ = scroll_offset_ > 5 ? scroll_offset_ - 5 : 0;
     follow_bottom_ = scroll_offset_ == 0;
+    return old_offset != scroll_offset_ || old_follow != follow_bottom_;
 }
-void TuiView::scroll_page_up(TuiPage page)
+bool TuiView::scroll_page_up(TuiPage page)
 {
-    if (page == TuiPage::conversation) { scroll_up(); return; }
+    if (page == TuiPage::conversation) return scroll_up();
     const auto index = static_cast<std::size_t>(page);
+    const auto old_offset = page_scroll_offsets_[index];
+    const bool old_follow = page_follows_bottom_[index];
     const auto rows = rendered_page_rows(page, last_columns_).size();
     const auto visible = static_cast<std::size_t>(std::max(1, last_chat_height_));
     const auto maximum = rows > visible ? rows - visible : 0;
     page_scroll_offsets_[index] = std::min(maximum, page_scroll_offsets_[index] + 5);
     page_follows_bottom_[index] = page_scroll_offsets_[index] == 0;
+    return old_offset != page_scroll_offsets_[index] || old_follow != page_follows_bottom_[index];
 }
-void TuiView::scroll_page_down(TuiPage page)
+bool TuiView::scroll_page_down(TuiPage page)
 {
-    if (page == TuiPage::conversation) { scroll_down(); return; }
+    if (page == TuiPage::conversation) return scroll_down();
     const auto index = static_cast<std::size_t>(page);
+    const auto old_offset = page_scroll_offsets_[index];
+    const bool old_follow = page_follows_bottom_[index];
     page_scroll_offsets_[index] = page_scroll_offsets_[index] > 5 ? page_scroll_offsets_[index] - 5 : 0;
     page_follows_bottom_[index] = page_scroll_offsets_[index] == 0;
+    return old_offset != page_scroll_offsets_[index] || old_follow != page_follows_bottom_[index];
 }
 void TuiView::on_resize(int columns, int height)
 {
+    if (last_columns_ != std::max(1, columns)) invalidate_conversation_cache();
     last_columns_ = std::max(1, columns);
     last_chat_height_ = std::max(1, height);
 }
@@ -507,27 +673,61 @@ void TuiView::preserve_anchor_after_content_change(std::size_t previous_rows)
     const auto now = rendered_conversation_rows(last_columns_).size();
     scroll_offset_ += now > previous_rows ? now - previous_rows : 0;
 }
+std::vector<TuiConversationRow> TuiView::rendered_styled_conversation_rows(int columns) const
+{
+    const int normalized_columns = std::max(1, columns);
+    if (cached_conversation_columns_ != normalized_columns
+        || cached_conversation_markdown_ != markdown_enabled_) {
+        conversation_cache_.clear();
+        cached_conversation_columns_ = normalized_columns;
+        cached_conversation_markdown_ = markdown_enabled_;
+    }
+    if (messages_.empty()) return {{"No messages yet. Type a message below.", MarkdownLineKind::paragraph, {}}};
+    conversation_cache_.resize(messages_.size());
+    const int usable = std::max(1, columns - 2);
+    for (std::size_t message_index = 0; message_index < messages_.size(); ++message_index) {
+        auto& cached = conversation_cache_[message_index];
+        if (cached.valid) continue;
+        cached.rows.clear();
+        const auto& message = messages_[message_index];
+        const std::string full_prefix = message.kind == TuiMessageKind::user ? "You: " :
+                                        message.kind == TuiMessageKind::assistant ? "LOFITERM Bot: " : "* ";
+        const std::string prefix = message.kind == TuiMessageKind::assistant && width_of(full_prefix) + 1 >= usable
+            ? "Bot: " : full_prefix;
+        const std::string continuation(prefix.size(), ' ');
+        const auto parsed = present_markdown(message.text,
+            message.kind == TuiMessageKind::assistant && markdown_enabled_);
+        bool first_line = true;
+        for (const auto& line : parsed) {
+            const auto first_prefix = first_line ? std::string_view(prefix) : std::string_view(continuation);
+            auto wrapped = wrap(line.text, first_prefix, continuation, usable);
+            for (auto& row : wrapped) cached.rows.push_back({std::move(row), line.kind, line.language});
+            first_line = false;
+        }
+        if (message.incomplete) cached.rows.push_back({continuation + "[incomplete]", MarkdownLineKind::raw, {}});
+        cached.valid = true;
+    }
+    std::vector<TuiConversationRow> result;
+    std::size_t row_count = 0;
+    for (const auto& cached : conversation_cache_) row_count += cached.rows.size();
+    result.reserve(row_count);
+    for (const auto& cached : conversation_cache_) result.insert(result.end(), cached.rows.begin(), cached.rows.end());
+    return result;
+}
+
 std::vector<std::string> TuiView::rendered_conversation_rows(int columns) const
 {
     std::vector<std::string> result;
-    if (messages_.empty()) return {"No messages yet. Type a message below."};
-    const int usable = std::max(1, columns - 2);
-    for (const auto& message : messages_) {
-        const std::string prefix = message.kind == TuiMessageKind::user ? "You: " :
-                                   message.kind == TuiMessageKind::assistant ? "Agent: " : "* ";
-        const std::string continuation(prefix.size(), ' ');
-        const auto message_lines = lines(message.text);
-        for (std::size_t line_index = 0; line_index < message_lines.size(); ++line_index) {
-            const auto first_prefix = line_index == 0 ? std::string_view(prefix)
-                                                       : std::string_view(continuation);
-            auto wrapped = wrap(message_lines[line_index], first_prefix, continuation, usable);
-            result.insert(result.end(), std::make_move_iterator(wrapped.begin()), std::make_move_iterator(wrapped.end()));
-        }
-        if (message.incomplete) result.push_back(continuation + "[incomplete]");
-    }
+    for (const auto& row : rendered_styled_conversation_rows(columns)) result.push_back(row.text);
     return result;
 }
 std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns) const
+{
+    return rendered_page_rows(page, columns, 0, false);
+}
+
+std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns,
+                                                      int subsection, bool subsection_open) const
 {
     if (page == TuiPage::conversation) return rendered_conversation_rows(columns);
     std::vector<std::string> source;
@@ -611,21 +811,51 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns) 
         }
         break;
     case TuiPage::configuration:
-        source.emplace_back("Read-only configuration:");
-        source.push_back("Model: " + sanitize_terminal_line(view_data_.model));
-        source.push_back("Endpoint: " + sanitize_terminal_line(view_data_.endpoint_origin));
-        source.push_back("Timeout: " + std::to_string(view_data_.timeout_seconds) + " seconds");
-        source.push_back(std::string("API key: ") + (view_data_.api_key_configured ? "configured (value hidden)" : "not configured"));
-        source.emplace_back("Workspace: unavailable in this view.");
+        source.emplace_back("Configuration — read only");
+        source.emplace_back(std::string(subsection == 0 ? "> " : "  ") + "Model / connection");
+        source.emplace_back(std::string(subsection == 1 ? "> " : "  ") + "Security / approvals");
+        source.emplace_back(std::string(subsection == 2 ? "> " : "  ") + "Display preferences");
+        if (subsection_open && subsection == 0) {
+            source.push_back("Model: " + sanitize_terminal_line(view_data_.model));
+            source.push_back("Endpoint: " + sanitize_terminal_line(view_data_.endpoint_origin));
+            source.push_back("Timeout: " + std::to_string(view_data_.timeout_seconds) + " seconds");
+            source.push_back(std::string("API key: ") + (view_data_.api_key_configured ? "configured (value hidden)" : "not configured"));
+            source.emplace_back("Workspace: unavailable in this view.");
+        } else if (subsection_open && subsection == 1) {
+            source.emplace_back("write_file creates only after an exact per-request approval challenge.");
+            source.emplace_back("Existing files cannot be overwritten. Landlock confines this process.");
+        } else if (subsection_open) {
+            source.emplace_back("Chat Markdown: formatted by default; M toggles plain text when content is focused.");
+            source.emplace_back(std::getenv("NO_COLOR") ? "Colors: disabled by NO_COLOR." : "Colors: terminal palette when available.");
+        }
         break;
     case TuiPage::help:
-        source.emplace_back("F1-F6  Select Conversation, Tools, Metrics, Diagnostics, Configuration, Help");
-        source.emplace_back("Escape Return to Conversation");
-        source.emplace_back("Tab    Cycle focus");
-        source.emplace_back("F9     Send from Conversation only");
-        source.emplace_back("F10    Quit; active request may finish first");
-        source.emplace_back("Enter  Insert newline in the composer");
-        source.emplace_back("PgUp/PgDn Scroll the current view");
+        source.emplace_back("Help");
+        source.emplace_back(std::string(subsection == 0 ? "> " : "  ") + "Getting started");
+        source.emplace_back(std::string(subsection == 1 ? "> " : "  ") + "Keyboard and mouse");
+        source.emplace_back(std::string(subsection == 2 ? "> " : "  ") + "About / limits");
+        if (subsection_open && subsection == 0) {
+            source.emplace_back("1. Type a message in Chat.");
+            source.emplace_back("2. Press F9 to send; Enter inserts a newline.");
+            source.emplace_back("3. Inspect Tools and Activity for observed events.");
+        } else if (subsection_open && subsection == 1) {
+            source.emplace_back("F1-F6 switch views; Tab changes focus; Escape returns/back.");
+            source.emplace_back("Arrows edit the composer or move a focused menu; PgUp/PgDn scroll.");
+            source.emplace_back("Enter inserts a newline in the composer or opens a focused section.");
+            source.emplace_back("F9 sends once from Chat; F10 requests exit.");
+            source.emplace_back("Mouse if supported: click tabs/composer; wheel scrolls.");
+            source.emplace_back("Sélectionner du texte : Maj + clic-glisser.");
+            source.emplace_back("M toggles Markdown/plain text with Chat content focused.");
+        } else if (subsection_open) {
+            source.emplace_back("LOFITERM — local AI terminal");
+            source.emplace_back("Version: unavailable (not embedded in this build).");
+            source.emplace_back("Commit: unavailable (not embedded in this build).");
+            source.emplace_back("Platform: Linux; Landlock is required.");
+            source.emplace_back("Project: https://github.com/mohamedbouhlel/local-agent-cpp");
+            source.emplace_back("Docs: README.md and USAGE.md in the source repository.");
+            source.emplace_back("The configured LLM server may be remote; transport completion does not verify task success.");
+            source.emplace_back("write_file requires explicit approval; existing files cannot be overwritten.");
+        }
         break;
     case TuiPage::conversation:
     case TuiPage::count:
@@ -639,6 +869,58 @@ std::vector<std::string> TuiView::rendered_page_rows(TuiPage page, int columns) 
         result.insert(result.end(), std::make_move_iterator(wrapped.begin()), std::make_move_iterator(wrapped.end()));
     }
     return result;
+}
+
+int TuiView::hit_test_tab(int x, int columns, TuiPage active, bool menu_focus) const
+{
+    if (x < 0 || columns < 1) return -1;
+    for (const auto& tab : tab_geometry(columns, active, menu_focus)) {
+        if (x >= tab.column && x < tab.column + tab.width) return tab.page;
+    }
+    return -1;
+}
+
+bool TuiView::hit_test_composer(int y, int rows) const noexcept
+{
+    return y >= rows - 4 && y < rows;
+}
+
+int TuiView::hit_test_subsection(TuiPage page, int y) const noexcept
+{
+    const int index = y - 5;
+    if ((page == TuiPage::configuration || page == TuiPage::help) && index >= 0 && index < 3) return index;
+    return -1;
+}
+
+bool TuiView::hit_test_content(int x, int y, int rows, int columns, TuiPage page,
+                               int subsection, bool subsection_open) const
+{
+    constexpr int chat_top = 4;
+    if (x < 0 || y < chat_top || rows <= 0 || columns <= 0 || x >= columns - 1) return false;
+    const bool conversation = page == TuiPage::conversation;
+    if (conversation && messages_.empty()) return false; // The empty-state prompt is informative, not focusable content.
+    const int composer_top = conversation ? rows - 4 : rows;
+    const int chat_height = std::max(0, composer_top - chat_top);
+    if (y >= composer_top || chat_height == 0) return false;
+
+    std::vector<std::string> lines;
+    if (conversation) {
+        const auto projected = rendered_styled_conversation_rows(columns);
+        lines.reserve(projected.size());
+        for (const auto& row : projected) lines.push_back(row.text);
+    } else {
+        lines = rendered_page_rows(page, columns, subsection, subsection_open);
+    }
+
+    const auto content_size = lines.size();
+    const auto offset = conversation ? scroll_offset_ : page_scroll_offsets_[static_cast<std::size_t>(page)];
+    const bool follows = conversation ? follow_bottom_ : page_follows_bottom_[static_cast<std::size_t>(page)];
+    const auto end = follows ? content_size : content_size > offset ? content_size - offset : 0;
+    const auto begin = end > static_cast<std::size_t>(chat_height)
+        ? end - static_cast<std::size_t>(chat_height) : 0;
+    const auto line_index = begin + static_cast<std::size_t>(y - chat_top);
+    if (line_index >= end || line_index >= content_size) return false;
+    return width_of(lines[line_index]) > x;
 }
 
 TuiComposerRender TuiView::rendered_composer(std::string_view input, std::size_t cursor_byte,
@@ -710,8 +992,12 @@ std::string TuiView::status_line(TuiPage page, TuiFocus focus, int columns) cons
         + TuiNavigation::short_page_name(page);
     const char* focus_label = focus == TuiFocus::composer ? "INPUT" :
                               focus == TuiFocus::menu ? "MENU" : "VIEW";
-    return label.empty() ? active + " [" + focus_label + "] " + status_
-                         : label + " " + active + " [" + focus_label + "] " + status_;
+    const char* contextual = page == TuiPage::conversation && focus == TuiFocus::composer
+        ? "Enter newline | F9 send" : focus == TuiFocus::menu ? "Arrows select | Enter open | Esc back"
+        : "PgUp/PgDn scroll | F1-F6 views";
+    const std::string base = label.empty() ? active + " [" + focus_label + "] " + status_
+                                           : label + " " + active + " [" + focus_label + "] " + status_;
+    return base + " | " + contextual;
 }
 
 bool TuiView::layout_supported(int rows, int columns) noexcept
@@ -757,15 +1043,9 @@ void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation
         draw_at(window, 1, nav_column, "MENU", cols - 1, VisualStyle::peach, colors);
         nav_column = width_of("MENU");
     }
-    const bool compact_nav = cols < 100;
-    const std::array<std::string_view, 6> nav_labels = {"CHAT", "TOOLS", "ACTIVITY", "DIAG", "CONFIG", "HELP"};
-    for (int i = 0; i < 6 && nav_column < cols - 1; ++i) {
-        if (nav_column > 0) ++nav_column;
-        const bool selected = static_cast<int>(page) == i;
-        const auto item = navigation_label(i + 1, nav_labels[static_cast<std::size_t>(i)], selected, compact_nav);
-        const auto style = selected ? VisualStyle::selected : VisualStyle::muted;
-        draw_at(window, 1, nav_column, item, cols - 1 - nav_column, style, colors);
-        nav_column += width_of(item);
+    for (const auto& tab : tab_geometry(cols, page, navigation.focus() == TuiFocus::menu)) {
+        const auto style = tab.page == static_cast<int>(page) ? VisualStyle::selected : VisualStyle::muted;
+        draw_at(window, 1, tab.column, tab.label, tab.width, style, colors);
     }
     std::string status = status_line(page, navigation.focus(), cols);
     const bool partial = status.find("PARTIAL") != std::string::npos;
@@ -778,20 +1058,33 @@ void TuiView::draw(WINDOW* window, bool unicode, const TuiNavigation& navigation
     const bool conversation = page == TuiPage::conversation;
     const int composer_top = conversation ? rows - 4 : rows;
     const int chat_height = std::max(0, composer_top - chat_top);
-    auto content = rendered_page_rows(page, cols);
+    std::vector<std::string> content;
+    std::vector<TuiConversationRow> conversation_rows;
+    if (conversation) conversation_rows = rendered_styled_conversation_rows(cols);
+    else content = rendered_page_rows(page, cols, navigation.subsection_index(), navigation.subsection_open());
+    const std::size_t content_size = conversation ? conversation_rows.size() : content.size();
     auto& offset = conversation ? scroll_offset_ : page_scroll_offsets_[static_cast<std::size_t>(page)];
     const bool follows = conversation ? follow_bottom_ : page_follows_bottom_[static_cast<std::size_t>(page)];
     if (follows) offset = 0;
-    else offset = std::min(offset, content.size() > static_cast<std::size_t>(chat_height)
-        ? content.size() - static_cast<std::size_t>(chat_height) : 0);
-    const auto end = content.size() > offset ? content.size() - offset : 0;
+    else offset = std::min(offset, content_size > static_cast<std::size_t>(chat_height)
+        ? content_size - static_cast<std::size_t>(chat_height) : 0);
+    const auto end = content_size > offset ? content_size - offset : 0;
     const auto begin = end > static_cast<std::size_t>(chat_height) ? end - static_cast<std::size_t>(chat_height) : 0;
     for (std::size_t i = begin; i < end && static_cast<int>(i - begin) < chat_height; ++i) {
-        draw_line(window, chat_top + static_cast<int>(i - begin), content[i], cols,
-                  VisualStyle::normal, colors);
+        const int y = chat_top + static_cast<int>(i - begin);
+        if (conversation) {
+            const auto& item = conversation_rows[i];
+            if (item.kind == MarkdownLineKind::code) draw_code_line(window, y, 0, item.text, cols - 1, item.language, colors);
+            else draw_line(window, y, unicode ? std::string_view(item.text)
+                                              : std::string_view(ascii_markdown_fallback(item.text)),
+                           cols, markdown_style(item.kind), colors);
+        } else {
+            draw_line(window, y, content[i], cols, VisualStyle::normal, colors);
+        }
     }
     if (conversation) {
-        draw_line(window, composer_top, "MESSAGE  |  Enter newline  |  F9 send", cols,
+        draw_line(window, composer_top, markdown_enabled_ ? "MESSAGE  |  Enter newline  |  F9 send  |  M plain/formatted"
+                                                          : "MESSAGE  |  Enter newline  |  F9 send  |  M formatted/plain", cols,
                   navigation.focus() == TuiFocus::composer ? VisualStyle::peach : VisualStyle::muted, colors);
         const auto visible = std::max(1, rows - composer_top - 1);
         const auto composer = rendered_composer(input, cursor, cols, visible);

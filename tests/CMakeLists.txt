@@ -46,3 +46,7 @@ foreach(group IN LISTS test_groups)
   add_test(NAME ${group} COMMAND agent_tests --filter=${group})
   set_tests_properties(${group} PROPERTIES TIMEOUT 30)
 endforeach()
+# tui3 includes 30 independent PTY shutdown repetitions. A clean run took
+# 31.58 s on the qualification host, so keep the repetition count and allow
+# bounded scheduler variance instead of timing out a passing group at 30 s.
+set_tests_properties(tui3 PROPERTIES TIMEOUT 60)

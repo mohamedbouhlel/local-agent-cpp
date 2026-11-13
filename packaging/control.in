@@ -1,0 +1,10 @@
+Package: lofiterm
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Mohamed Bouhlel <63722008+mohamedbouhlel@users.noreply.github.com>
+Depends: libc6, libcurl4t64, libgcc-s1, libncursesw6, libstdc++6, libtinfo6
+Description: local LLM agent with a ncurses terminal interface
+ LOFITERM is a local C++ agent with a classic terminal interface and a
+ ncursesw full-screen interface. It requires Linux Landlock support.

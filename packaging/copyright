@@ -1,0 +1,10 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: LOFITERM
+Source: https://github.com/mohamedbouhlel/local-agent-cpp
+
+Files: *
+Copyright: Not declared in the source tree inspected for this local build.
+License: UNKNOWN
+ This local package is for installation and evaluation on the maintainer's
+ system only. No license to redistribute the program is asserted by this
+ metadata. Public distribution is blocked pending an explicit license.

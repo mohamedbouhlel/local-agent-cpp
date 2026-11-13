@@ -57,7 +57,7 @@ Depuis le répertoire choisi ci-dessus, le mode classique se lance avec `"$repo_
 
 ## Installation Debian
 
-Le dépôt contient une recette de paquet local Debian 13 amd64. Consultez [l'installation Debian 13](docs/INSTALL_DEBIAN13.md) et le [guide de démarrage](docs/user/fr/01-demarrage-installation.md). Il n'existe pas de dépôt APT public. Le dépôt ne déclare pas de licence de redistribution : ne distribuez pas le paquet sans clarification de licence.
+Le dépôt contient une recette de paquet local Debian 13 amd64. Consultez [l'installation Debian 13](docs/INSTALL_DEBIAN13.md) et le [guide de démarrage](docs/user/fr/01-demarrage-installation.md). Il n'existe pas de dépôt APT public. Le code original du projet est sous [licence 0BSD](LICENSE). Les dépendances tierces conservent leurs propres licences ; le paquet Debian reste une recette locale, non une release officielle.
 
 ## Guides
 
@@ -93,6 +93,10 @@ flowchart LR
 ```
 
 Voir [l'architecture détaillée](docs/user/fr/07-architecture.md). Les schémas décrivent le code livré, pas toutes les propositions des anciennes spécifications.
+
+## Licence
+
+Le code et la documentation originale de LOFITERM sont diffusés sous la [licence BSD Zero-Clause (0BSD)](LICENSE). Usage commercial et redistribution sans attribution obligatoire. Les dépendances tierces restent soumises à leurs licences.
 
 ## Contribuer
 

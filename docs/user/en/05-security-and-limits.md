@@ -20,7 +20,7 @@ Approval cannot prevent a poorly informed user decision. Inspect the target, par
 - Metrics retain bounded counters and identifiers; they do not retain conversation text, tool arguments, or tool results as metrics history.
 - Content sent to the LLM is subject to the server and network policies. A local model does not automatically mean the server keeps no logs.
 - Conversation history is in process memory; source-build workspace files remain on disk in the chosen location. LOFITERM has no persistent cross-session model memory.
-- The repository does not declare a redistribution license. The Debian package is for local installation/evaluation, not public distribution approval.
+- Original project code and documentation use the [0BSD license](../../../LICENSE). Third-party dependencies retain their own licenses; the Debian package is a local recipe, not an officially qualified release.
 
 ## Established operational limits
 

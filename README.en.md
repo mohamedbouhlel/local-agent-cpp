@@ -57,7 +57,7 @@ From the selected directory above, run the classic interface with `"$repo_dir/bu
 
 ## Debian installation
 
-The repository includes a local Debian 13 amd64 package recipe. See [Debian 13 installation](docs/INSTALL_DEBIAN13.md) and the [getting-started guide](docs/user/en/01-getting-started.md). There is no public APT repository. The source tree does not declare a redistribution license; do not distribute the package until licensing is clarified.
+The repository includes a local Debian 13 amd64 package recipe. See [Debian 13 installation](docs/INSTALL_DEBIAN13.md) and the [getting-started guide](docs/user/en/01-getting-started.md). There is no public APT repository. The project's original code is [0BSD-licensed](LICENSE). Third-party dependencies retain their own licenses; the Debian package is a local recipe, not an official release.
 
 ## Guides
 
@@ -93,6 +93,10 @@ flowchart LR
 ```
 
 See the [detailed architecture guide](docs/user/en/07-architecture.md). Diagrams describe the shipped code, not every proposal in historical specifications.
+
+## License
+
+LOFITERM's original code and documentation are released under the [BSD Zero-Clause license (0BSD)](LICENSE). Commercial use and redistribution require no attribution. Third-party components retain their own licenses.
 
 ## Contributing
 

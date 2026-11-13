@@ -50,7 +50,7 @@ Use `--ui=classic` for the classic CLI; it is also the default. The agent create
 
 ## Install the local Debian package
 
-A local Debian 13 amd64 package recipe is documented in [`docs/INSTALL_DEBIAN13.md`](../../INSTALL_DEBIAN13.md). The installed package provides `/usr/bin/lofiterm`; install it with `sudo apt install ./lofiterm_1.0.0-1_amd64.deb`. This is neither an APT repository nor a package approved for public redistribution: the source tree does not declare a redistribution license.
+A local Debian 13 amd64 package recipe is documented in [`docs/INSTALL_DEBIAN13.md`](../../INSTALL_DEBIAN13.md). The installed package provides `/usr/bin/lofiterm`; install it with `sudo apt install ./lofiterm_1.0.0-1_amd64.deb`. This is neither an APT repository nor an official release. Original project code is [0BSD-licensed](../../../LICENSE); binary redistribution must also comply with third-party licenses.
 
 The package separates the application from user data: configuration is under `${XDG_CONFIG_HOME:-~/.config}/lofiterm/config`, and the workspace under `${XDG_DATA_HOME:-~/.local/share}/lofiterm/workspace`. `LOFITERM_CONFIG_FILE` and `LOFITERM_DATA_DIR` accept absolute paths to move these locations. The launcher changes into the data directory before starting the agent, so the caller's working directory does not determine the package workspace.
 

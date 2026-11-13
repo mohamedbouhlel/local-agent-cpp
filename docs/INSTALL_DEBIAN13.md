@@ -1,9 +1,9 @@
 # Installation locale de LOFITERM sur Debian 13 amd64
 
-Ce paquet installe la commande `lofiterm`. Il s'agit d'un paquet local de
-qualification : le dépôt consulté ne déclare pas de licence de redistribution.
-Ne publiez ni le paquet ni une archive binaire avant clarification explicite de
-la licence.
+Ce paquet installe la commande `lofiterm`. Il s'agit d'un paquet local de qualification. Le code original de LOFITERM
+est sous [licence 0BSD](../LICENSE). Toute redistribution binaire doit aussi
+respecter les licences des dépendances tierces et inclure leurs notices
+requises. Cette recette locale ne constitue pas une publication officielle.
 
 ## Installation
 

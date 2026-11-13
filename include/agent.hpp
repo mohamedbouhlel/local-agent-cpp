@@ -27,11 +27,11 @@ struct AgentConfig {
     std::optional<HttpTimeouts> http_timeouts;
 };
 
-// Erreur de protocole côté agent : flux LLM incomplet (pas de "[DONE]"), réponse
-// tronquée par la limite de tokens, ou tool call malformé (id/nom vide). Elle
-// distingue une réponse inexploitable d'une erreur de transport (HttpError) et
-// signifie toujours que le tour n'a PAS produit d'action valide : rien n'a été
-// ajouté à l'historique pour ce tour.
+// Erreur de l'agent : réponse protocolaire invalide/incomplète, tool call
+// malformé ou limite d'itérations atteinte. Une réponse assistant incomplète
+// n'est pas validée dans l'historique, mais le message utilisateur y reste.
+// Des appels d'outils, leurs résultats et leurs effets peuvent déjà avoir eu
+// lieu avant l'échec; aucun rollback implicite n'est garanti.
 struct AgentError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };

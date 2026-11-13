@@ -35,6 +35,19 @@ LOFITERM ncursesw depuis un terminal interactif, lancer `./build/agent --ui=tui`
 
 La configuration est chargée depuis **l'environnement du processus** (`std::getenv`) ; le binaire ne lit pas directement `.env`. Les valeurs par défaut figurent dans [USAGE.md](USAGE.md#2-configuration) et `.env.example`. `workspace/` est relatif **au répertoire de lancement** ; le programme crée ce répertoire s'il manque et rejette une racine qui est un lien symbolique.
 
+## Installation locale Debian 13
+
+Un paquet `.deb` pour Debian 13 amd64 peut être construit avec
+`packaging/build-deb.sh`. Il installe la commande `lofiterm`, qui
+propose les modes classique et TUI. Le lanceur utilise une
+configuration et un workspace utilisateur sous les chemins XDG.
+
+Voir [INSTALL_DEBIAN13.md](docs/INSTALL_DEBIAN13.md).
+
+La qualification sur conteneur est décrite dans `docs/reports/`.
+La licence de redistribution n'étant pas définie, ce packaging
+reste réservé à l'installation et à l'évaluation locales.
+
 ## Tests
 
 ```sh

@@ -148,6 +148,9 @@ Les entrées ci-dessous complètent l'index initial sans effacer les intitulés 
 | [2026-11-10-final-git-ui4-v1-freeze-audit.md](reports/2026-11-10-final-git-ui4-v1-freeze-audit.md) | Audit du SHA `b1d1942` : état Git, préservation du travail UI-4 local et décision sur le gel du socle technique v1.0 |
 | [2026-11-10-v1-technical-tag-freeze.md](reports/2026-11-10-v1-technical-tag-freeze.md) | Publication et vérification du tag annoté `v1.0.0-technical` sur le SHA `b1d1942` |
 
+| [INSTALL_DEBIAN13.md](INSTALL_DEBIAN13.md) | Installation locale Debian 13 amd64, configuration XDG et désinstallation |
+| [2026-11-10-lofiterm-debian13-package.md](reports/2026-11-10-lofiterm-debian13-package.md) | Qualification historique du paquet construit au SHA `46d653f` |
+| [2026-11-13-lofiterm-debian13-package-validation.md](reports/2026-11-13-lofiterm-debian13-package-validation.md) | Reconstruction et installation validées du paquet Debian 13 depuis `60e2e55` |
 > Les rapports de phase consignent un résultat à un instant donné. **Ils ne
 > remplacent pas les documents de référence** : tout fait durable qui y est établi
 > doit être reporté dans `context/`, `history/`, `roadmap/` ou `questions/`.

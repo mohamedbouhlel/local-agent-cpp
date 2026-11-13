@@ -1,0 +1,59 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf 'lofiterm: %s\n' "$1" >&2
+    exit 2
+}
+
+if [ -z "${HOME:-}" ]; then
+    fail 'HOME is not set'
+fi
+
+config_home=${XDG_CONFIG_HOME:-"$HOME/.config"}
+data_home=${XDG_DATA_HOME:-"$HOME/.local/share"}
+case "$config_home" in /*) ;; *) fail 'XDG_CONFIG_HOME must be an absolute path' ;; esac
+case "$data_home" in /*) ;; *) fail 'XDG_DATA_HOME must be an absolute path' ;; esac
+
+config_file=${LOFITERM_CONFIG_FILE:-"$config_home/lofiterm/config"}
+app_data=${LOFITERM_DATA_DIR:-"$data_home/lofiterm"}
+case "$app_data" in /*) ;; *) fail 'LOFITERM_DATA_DIR must be an absolute path' ;; esac
+
+if [ -e "$config_file" ]; then
+    [ -f "$config_file" ] || fail 'configuration path must be a regular file'
+    mode=$(stat -c '%a' -- "$config_file") || fail 'cannot inspect configuration permissions'
+    if [ $((0$mode & 077)) -ne 0 ]; then
+        fail 'configuration file must not be accessible by group or others (use chmod 600)'
+    fi
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ''|'#'*) continue ;;
+            *=*) key=${line%%=*}; value=${line#*=} ;;
+            *) fail 'invalid configuration line; expected NAME=VALUE' ;;
+        esac
+        case "$key" in
+            LLM_BASE_URL)
+                [ "${LLM_BASE_URL+x}" = x ] || LLM_BASE_URL=$value
+                export LLM_BASE_URL
+                ;;
+            LLM_MODEL)
+                [ "${LLM_MODEL+x}" = x ] || LLM_MODEL=$value
+                export LLM_MODEL
+                ;;
+            LLM_API_KEY)
+                [ "${LLM_API_KEY+x}" = x ] || LLM_API_KEY=$value
+                export LLM_API_KEY
+                ;;
+            LLM_TIMEOUT_SECONDS)
+                [ "${LLM_TIMEOUT_SECONDS+x}" = x ] || LLM_TIMEOUT_SECONDS=$value
+                export LLM_TIMEOUT_SECONDS
+                ;;
+            *) fail "unsupported configuration key: $key" ;;
+        esac
+    done < "$config_file"
+fi
+
+umask 077
+mkdir -p -- "$app_data/workspace" || fail 'cannot create the user workspace'
+cd -- "$app_data" || fail 'cannot enter the user data directory'
+exec /usr/lib/lofiterm/agent "$@"

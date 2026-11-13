@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="945" height="580" viewBox="0 0 945 580">
+<title>LOFITERM terminal capture</title><desc>Captured from the running application in a tmux PTY; not a Ghostty screenshot.</desc>
+<rect width="100%" height="100%" fill="#171a27"/>
+<g font-family="DejaVu Sans Mono, monospace" font-size="14" xml:space="preserve">
+<rect x="0" y="0" width="396" height="20" fill="#d9dced"/>
+<text x="0" y="16" fill="#171a27" font-weight="bold">LOFITERM  |  LOCAL AI TERMINAL  -  PEACH FOG</text>
+<rect x="0" y="20" width="81" height="20" fill="#d9dced"/>
+<text x="0" y="36" fill="#171a27" font-weight="bold">[F1 CHAT]</text>
+<text x="81" y="36" fill="#d9dced" font-weight="normal">  F2 TOOLS   F3 ACTIVITY   F4 DIAG   F5 CONFIG   F6 HELP</text>
+<text x="0" y="56" fill="#d9dced" font-weight="bold">1/6 Chat [INPUT] Terminal resized; compact layout active when space is limited. | Enter newline | F9 send</text>
+<text x="0" y="76" fill="#d9dced" font-weight="normal">─ CONVERSATION ----------------</text>
+<text x="0" y="96" fill="#d9dced" font-weight="normal">No messages yet. Type a message below.</text>
+<text x="0" y="576" fill="#d9dced" font-weight="normal">MESSAGE  |  Enter newline  |  F9 send  |  M plain/formatted</text>
+</g></svg>

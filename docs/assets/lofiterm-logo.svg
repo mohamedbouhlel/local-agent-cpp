@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="92" viewBox="0 0 420 92" role="img" aria-labelledby="title desc">
+  <title id="title">LOFITERM</title>
+  <desc id="desc">LOFITERM wordmark with a terminal prompt symbol.</desc>
+  <rect x="4" y="4" width="84" height="84" rx="24" fill="#202335"/>
+  <path d="M29 31 48 46 29 61" fill="none" stroke="#b8afff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M53 62h17" fill="none" stroke="#f2bd93" stroke-width="7" stroke-linecap="round"/>
+  <text x="108" y="54" fill="#202335" font-family="DejaVu Sans, sans-serif" font-size="34" font-weight="700" letter-spacing="2">LOFITERM</text>
+  <text x="110" y="76" fill="#777b91" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" letter-spacing="2.2">LOCAL AI TERMINAL</text>
+</svg>

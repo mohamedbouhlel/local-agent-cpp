@@ -1,8 +1,35 @@
-# Documentation — agent-cpp
+# Documentation LOFITERM
 
-Index du répertoire `docs/`. Ce répertoire centralise la documentation du projet,
-classée par type. Il ne remplace pas le [`README.md`](../README.md) racine, qui
-reste le point d'entrée du projet (prérequis, configuration, build, exécution).
+**Langue / Language / Idioma:** [🇫🇷 Français](#francais) · [🇬🇧 English](#english) · [🇪🇸 Español](#espanol)
+
+<a id="francais"></a>
+## Français
+
+Point d'entrée : [`README.md`](../README.md) · Manuel : [`USAGE.md`](../USAGE.md)
+
+<a id="english"></a>
+## English
+
+Start here: [`README.en.md`](../README.en.md) · Manual: [`USAGE.en.md`](../USAGE.en.md)
+
+<a id="espanol"></a>
+## Español
+
+Empieza aquí: [`README.es.md`](../README.es.md) · Manual: [`USAGE.es.md`](../USAGE.es.md)
+
+## Guides utilisateur / User guides / Guías de usuario
+
+| Sujet / Topic / Tema | Français | English | Español |
+|---|---|---|---|
+| Démarrage, installation, configuration | [Guide](user/fr/01-demarrage-installation.md) | [Guide](user/en/01-getting-started.md) | [Guía](user/es/01-primeros-pasos.md) |
+| Interface classique et REPL | [Guide](user/fr/02-interface-classique.md) | [Guide](user/en/02-classic-interface.md) | [Guía](user/es/02-interfaz-clasica.md) |
+| TUI LOFITERM | [Guide](user/fr/03-interface-tui.md) | [Guide](user/en/03-tui.md) | [Guía](user/es/03-tui.md) |
+| Outils workspace | [Guide](user/fr/04-outils-workspace.md) | [Guide](user/en/04-workspace-tools.md) | [Guía](user/es/04-herramientas-workspace.md) |
+| Sécurité et limites | [Guide](user/fr/05-securite-limites.md) | [Guide](user/en/05-security-and-limits.md) | [Guía](user/es/05-seguridad-y-limites.md) |
+| Tutoriels, dépannage, FAQ | [Guide](user/fr/06-tutoriels-depannage-faq.md) | [Guide](user/en/06-tutorials-troubleshooting-faq.md) | [Guía](user/es/06-tutoriales-solucion-problemas-faq.md) |
+| Architecture simplifiée | [Guide](user/fr/07-architecture.md) | [Guide](user/en/07-architecture.md) | [Guía](user/es/07-arquitectura.md) |
+
+Les documents ci-dessous conservent leurs langues, dates et statuts d'origine. Les rapports sont des archives rattachées à leur SHA; leur présence ne signifie pas que leurs résultats ont été rejoués sur le HEAD courant.
 
 ## Documents de référence
 
@@ -27,12 +54,14 @@ Documents normatifs validés et spécifications en cours de ratification ; le st
 | [`specifications/console-ui-architecture-requirements.md`](specifications/console-ui-architecture-requirements.md) | **SPEC-UI-001 v2.0** : contrats de TUI plein écran et CLI classique; les choix effectivement intégrés et les rapports datés prévalent sur les propositions historiques |
 | [`specifications/SPEC-LOFI-001-v1.1.md`](specifications/SPEC-LOFI-001-v1.1.md) | SPEC-LOFI-001 v1.1 — identité UX LOFITERM, aide, souris, Markdown et non-régression; copie de l'étude source avec son statut historique |
 
+<a id="reports"></a>
 ## Rapports de phase
 
 Artefacts **datés**, liés à un jalon précis.
 
 | Rapport | Objet |
 | --- | --- |
+| [`2026-11-13-lofiterm-documentation-trilingual-redesign.md`](reports/2026-11-13-lofiterm-documentation-trilingual-redesign.md) | Refonte de la documentation utilisateur LOFITERM en français, anglais et espagnol; sources, captures PTY et limites de vérification |
 | [`reports/streaming-audit.md`](reports/streaming-audit.md) | audit en lecture seule de l'état réel du streaming avant implémentation (framing SSE, reconstruction des deltas) |
 | [`reports/PHASE_1_1_REPORT.md`](reports/PHASE_1_1_REPORT.md) | mise en place du harness de tests reproductible (micro-harnais maison, 64 cas / 239 assertions, 5 groupes) |
 | [`reports/PHASE_1_1_REVIEW_REPORT.md`](reports/PHASE_1_1_REVIEW_REPORT.md) | revue indépendante du harness ci-dessus : représentativité, déterminisme, couverture, faux positifs |

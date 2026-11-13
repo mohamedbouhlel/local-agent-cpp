@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="981" height="160" viewBox="0 0 981 160">
+<title>LOFITERM terminal capture</title><desc>Captured from the running application in a tmux PTY; not a Ghostty screenshot.</desc>
+<rect width="100%" height="100%" fill="#171a27"/>
+<g font-family="DejaVu Sans Mono, monospace" font-size="14" xml:space="preserve">
+<rect x="0" y="0" width="396" height="20" fill="#d9dced"/>
+<text x="0" y="16" fill="#171a27" font-weight="bold">LOFITERM  |  LOCAL AI TERMINAL  -  PEACH FOG</text>
+<text x="0" y="36" fill="#d9dced" font-weight="normal">MENU  F1 CHAT   F2 TOOLS   F3 ACTIVITY   F4 DIAG  </text>
+<rect x="450" y="20" width="99" height="20" fill="#d9dced"/>
+<text x="450" y="36" fill="#171a27" font-weight="bold">[F5 CONFIG]</text>
+<text x="549" y="36" fill="#d9dced" font-weight="normal">  F6 HELP</text>
+<text x="0" y="56" fill="#d9dced" font-weight="bold">5/6 Config [MENU] Terminal resized; compact layout active when space is limited. | Arrows select | Enter open</text>
+<text x="0" y="76" fill="#d9dced" font-weight="normal">─ CONFIGURATION ----------------</text>
+<text x="0" y="96" fill="#d9dced" font-weight="normal">Configuration — read only</text>
+<text x="0" y="116" fill="#d9dced" font-weight="normal">&gt; Model / connection</text>
+<text x="0" y="136" fill="#d9dced" font-weight="normal">  Security / approvals</text>
+<text x="0" y="156" fill="#d9dced" font-weight="normal">  Display preferences</text>
+</g></svg>

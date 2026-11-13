@@ -1,72 +1,99 @@
-# LOFITERM — agent-cpp
+<p align="center">
+  <img src="docs/assets/lofiterm-logo.svg" alt="LOFITERM — Local AI Terminal" width="420">
+</p>
 
-Agent conversationnel en ligne de commande, écrit en C++20, qui échange en streaming SSE avec un serveur LLM compatible OpenAI (`POST /v1/chat/completions`). Il expose quatre outils sur un répertoire `workspace/` : `list_files`, `read_file`, `search_files`, `write_file`.
+<p align="center"><strong>Un agent C++20 pour parler à un serveur LLM compatible OpenAI, dans votre terminal.</strong></p>
 
-> **Plateforme d'exécution : Linux avec Landlock opérationnel.** L'application refuse de démarrer sans ce confinement. Voir [USAGE.md](USAGE.md#5-outils-disponibles) pour les limites de sécurité. La qualification de convergence a été exécutée au SHA `81964be88279754fae11980c4c46f2a2c8ee37fd` (Debian 13.7); elle ne constitue pas une garantie pour tous les noyaux Linux.
+<p align="center">🇫🇷 Français · <a href="README.en.md">🇬🇧 English</a> · <a href="README.es.md">🇪🇸 Español</a></p>
 
-## Prérequis
+LOFITERM diffuse les réponses au fil d'un flux SSE et peut explorer les fichiers d'un workspace dédié. La CLI classique reste disponible; l'interface plein écran s'appuie sur ncursesw.
 
-- Linux avec prise en charge de Landlock et autorisation d'activer les règles filesystem (sinon échec au démarrage).
-- CMake >= 3.20 et compilateur C++20.
-- libcurl (dépendance système), par exemple sous Debian/Ubuntu : `sudo apt install libcurl4-openssl-dev`.
-- ncursesw (dépendance système du binaire, par exemple sous Debian/Ubuntu : `sudo apt install libncurses-dev`).
-- Accès à la récupération de `nlohmann/json` v3.11.3 pendant la configuration CMake (`FetchContent`).
-- Serveur LLM répondant au protocole compatible OpenAI en streaming SSE. llama.cpp, Ollama, LM Studio et vLLM sont des **exemples**, pas des environnements validés dans ce document.
+> **Plateforme : Linux avec Landlock activable.** L'application refuse de démarrer si le confinement filesystem ne peut pas être installé. Les limites de cette barrière sont décrites dans le [guide sécurité](docs/user/fr/05-securite-limites.md).
 
-## Compiler
+## Ce que le programme fait
+
+- Envoie des échanges à `POST /v1/chat/completions` avec `stream: true` et affiche les fragments reçus.
+- Offre quatre outils workspace au modèle : `list_files`, `read_file`, `search_files` et `write_file`.
+- Exige une approbation explicite par défi pour chaque création `write_file`; le refus, l'expiration ou l'annulation n'autorisent pas l'écriture. Les fichiers existants ne sont pas écrasés.
+- Propose une TUI LOFITERM à six vues : Conversation, Outils, Activité, Diagnostics, Configuration et Aide.
+- Affiche dans Activité les mesures réellement observées. Les fragments SSE ne sont pas des tokens; les détails incomplets sont signalés `PARTIAL`.
+
+Les outils sont appelés par décision du modèle, pas par des commandes shell saisies dans le REPL. Le modèle ne reçoit que les fonctions déclarées par l'agent; aucun outil shell n'est fourni.
+
+<a id="tui-preview"></a>
+## Aperçu de la TUI
+
+Les vues ci-dessous ont été capturées dans un PTY tmux 110×32 depuis le binaire construit au SHA `39646ffade1c71ece9995fde7770dcf428e45d3a`, avec configuration par défaut et sans requête LLM. Ce sont des captures de rendu terminal, **pas une qualification Ghostty**.
+
+| Conversation | Activité (F3) |
+| --- | --- |
+| ![Vue Conversation réelle dans un PTY tmux](docs/assets/screenshots/tui-f1-pty-capture.svg) | ![Vue Activité réelle dans un PTY tmux, sans tour](docs/assets/screenshots/tui-f3-pty-capture.svg) |
+
+| Configuration (F5) | Aide (F6) |
+| --- | --- |
+| ![Vue Configuration réelle dans un PTY tmux](docs/assets/screenshots/tui-f5-pty-capture.svg) | ![Vue Aide réelle dans un PTY tmux](docs/assets/screenshots/tui-f6-pty-capture.svg) |
+
+## Démarrage depuis les sources
+
+Prérequis : Linux/Landlock, CMake 3.20+, compilateur C++20, libcurl, ncursesw et accès à FetchContent pour récupérer `nlohmann/json` 3.11.3.
 
 ```sh
+repo_dir=$PWD
+sudo apt install build-essential cmake libcurl4-openssl-dev libncurses-dev
 cmake -S . -B build
-cmake --build build
-```
-
-## Configurer et lancer
-
-```sh
+cmake --build build -j2
 cp .env.example .env
-# Adapter LLM_BASE_URL / LLM_MODEL / LLM_API_KEY si nécessaire
+chmod 600 .env
+# Éditer .env avec l'endpoint et, si nécessaire, la clé du serveur.
 set -a; . ./.env; set +a
-./build/agent
+mkdir -p "$HOME/lofiterm-workspace"
+cd "$HOME/lofiterm-workspace"
+"$repo_dir/build/agent" --ui=tui
 ```
 
-La CLI classique est le mode par défaut. Pour ouvrir l'interface plein écran
-LOFITERM ncursesw depuis un terminal interactif, lancer `./build/agent --ui=tui` ;
-`./build/agent --ui=classic` sélectionne explicitement le mode classique.
+Depuis les sources, le workspace est `workspace/` sous le répertoire courant du processus. Cet exemple choisit un répertoire utilisateur dédié.
 
-La configuration est chargée depuis **l'environnement du processus** (`std::getenv`) ; le binaire ne lit pas directement `.env`. Les valeurs par défaut figurent dans [USAGE.md](USAGE.md#2-configuration) et `.env.example`. `workspace/` est relatif **au répertoire de lancement** ; le programme crée ce répertoire s'il manque et rejette une racine qui est un lien symbolique.
+Depuis le répertoire choisi ci-dessus, le mode classique se lance avec `"$repo_dir/build/agent" --ui=classic` (ou sans option). Depuis les sources, `workspace/` reste relatif au répertoire courant de lancement.
 
-## Installation locale Debian 13
+## Installation Debian
 
-Un paquet `.deb` pour Debian 13 amd64 peut être construit avec
-`packaging/build-deb.sh`. Il installe la commande `lofiterm`, qui
-propose les modes classique et TUI. Le lanceur utilise une
-configuration et un workspace utilisateur sous les chemins XDG.
+Le dépôt contient une recette de paquet local Debian 13 amd64. Consultez [l'installation Debian 13](docs/INSTALL_DEBIAN13.md) et le [guide de démarrage](docs/user/fr/01-demarrage-installation.md). Il n'existe pas de dépôt APT public. Le dépôt ne déclare pas de licence de redistribution : ne distribuez pas le paquet sans clarification de licence.
 
-Voir [INSTALL_DEBIAN13.md](docs/INSTALL_DEBIAN13.md).
+## Guides
 
-La qualification sur conteneur est décrite dans `docs/reports/`.
-La licence de redistribution n'étant pas définie, ce packaging
-reste réservé à l'installation et à l'évaluation locales.
+- [Démarrage, installation et configuration](docs/user/fr/01-demarrage-installation.md)
+- [Interface classique et REPL](docs/user/fr/02-interface-classique.md)
+- [Interface TUI LOFITERM](docs/user/fr/03-interface-tui.md)
+- [Outils workspace](docs/user/fr/04-outils-workspace.md)
+- [Sécurité et limites](docs/user/fr/05-securite-limites.md)
+- [Tutoriels, dépannage et FAQ](docs/user/fr/06-tutoriels-depannage-faq.md)
+- [Architecture simplifiée](docs/user/fr/07-architecture.md)
+- [Index et versions linguistiques](docs/README.md)
 
-## Tests
+## État et versions
 
-```sh
-cmake -S . -B build-tests -DAGENT_BUILD_TESTS=ON
-cmake --build build-tests
-ctest --test-dir build-tests --output-on-failure
+Le tag `v1.0.0-technical` identifie une base technique qualifiée antérieure; ce n'est pas une affirmation de release produit LOFITERM. Le nom public est **LOFITERM**; le dépôt, la cible CMake et le binaire compilé depuis les sources restent `local-agent-cpp` / `agent`.
+
+La qualification Debian/Ghostty, les essais manuels et les compteurs de tests sont datés et rattachés à leurs SHA dans [`docs/reports/`](docs/README.md). Ils ne garantissent pas chaque terminal, serveur, modèle ou noyau Linux.
+
+## Architecture en une vue
+
+```mermaid
+flowchart LR
+  U[Utilisateur] --> I[CLI classique ou TUI ncursesw]
+  I --> A[Agent C++]
+  A --> H[Client HTTP et parseur SSE]
+  H <--> L[Serveur LLM compatible OpenAI]
+  A --> T[Registre des outils workspace]
+  T --> W[list / read / search / write]
+  W --> S[Workspace et confinement Linux]
+  T -. approbation explicite .-> I
+  A -. événements .-> C[EventChannel et métriques observées]
+  C --> F[F3 Activité]
 ```
 
-Les tests sont désactivés par défaut. Pour les activer et les lancer, utilisez les commandes ci-dessus. Les résultats de qualification sont consignés par SHA dans `docs/reports/`; leurs compteurs sont historiques et ne décrivent pas automatiquement le HEAD courant.
+Voir [l'architecture détaillée](docs/user/fr/07-architecture.md). Les schémas décrivent le code livré, pas toutes les propositions des anciennes spécifications.
 
-`write_file` ne crée un fichier qu'après une approbation explicite, propre à chaque demande. L'interface présente le chemin, la taille, les répertoires parents concernés et le contenu intégral sous une forme inspectable; une confirmation exacte par défi est requise. Le refus, l'annulation, l'expiration ou l'indisponibilité de l'interface n'autorisent aucune création. L'écrasement reste interdit. Voir [USAGE.md](USAGE.md#5-outils-disponibles).
+## Contribuer
 
-Le binaire propose une CLI classique et une TUI ncursesw sélectionnée avec `--ui=tui`. Dans la TUI, F1–F6 ouvrent les six vues, F9 envoie depuis Conversation, F10 quitte et `M` bascule Markdown/texte brut lorsque le contenu de Conversation est focalisé. Les onglets, le composeur et la molette sont accessibles à la souris si le terminal la prend en charge. Le nom technique du binaire reste `agent`; LOFITERM est le nom public affiché.
-
-## Documentation
-
-- [USAGE.md](USAGE.md) : configuration, REPL simple/multiligne, outils, limites et dépannage.
-- [docs/README.md](docs/README.md) : index des documents de référence, spécifications et rapports.
-- [SPEC-LOFI-001 v1.1](docs/specifications/SPEC-LOFI-001-v1.1.md) : identité et évolution UX de la TUI LOFITERM.
-- [docs/context/PROJECT_CONTEXT.md](docs/context/PROJECT_CONTEXT.md) : photographie technique datée, limites et niveau de preuve.
-- [AGENTS.md](AGENTS.md) : consignes et gouvernance des modifications.
-
+Consultez [AGENTS.md](AGENTS.md) avant toute modification. Les changements destinés à `main` passent par une branche et une pull request; ne modifiez pas les rapports historiques pour les mettre artificiellement à jour.

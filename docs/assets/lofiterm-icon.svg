@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">LOFITERM icon</title>
+  <desc id="desc">A terminal prompt and cursor in the Peach Fog palette.</desc>
+  <rect x="4" y="4" width="120" height="120" rx="34" fill="#202335"/>
+  <path d="M34 41 59 64 34 87" fill="none" stroke="#b8afff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M69 89h25" fill="none" stroke="#f2bd93" stroke-width="9" stroke-linecap="round"/>
+</svg>

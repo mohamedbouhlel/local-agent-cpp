@@ -296,6 +296,147 @@ TEST(agent, event_tool_calls_entrelaces_correlent_deux_requetes_et_callbacks_leg
     check_single_terminal_sequence(observer->events);
 }
 
+TEST(agent, successful_tool_is_preserved_when_followup_http_fails_and_next_turn_runs)
+{
+    MockHttpServer server;
+    server.enqueue(response(tool_delta(0, "call-once", "once", nlohmann::json::object()) + done()));
+    server.enqueue(response("synthetic follow-up failure", 500));
+    server.enqueue(response(text_delta("next turn complete") + done()));
+
+    ToolRegistry tools;
+    const auto schema = nlohmann::json{{"type", "object"}, {"properties", nlohmann::json::object()}};
+    unsigned executions = 0;
+    tools.register_tool(Tool{"once", "one-shot test tool", schema,
+                             [&executions](nlohmann::json) {
+                                 ++executions;
+                                 return std::string("synthetic tool result");
+                             }});
+
+    auto observer = std::make_shared<RecordingObserver>();
+    Agent agent(tools, config_for(server), observer);
+    std::vector<ToolOutcome> outcomes;
+    AgentCallbacks callbacks;
+    callbacks.on_tool_result = [&outcomes](const ToolOutcome& outcome) { outcomes.push_back(outcome); };
+
+    bool first_turn_failed_http = false;
+    try {
+        (void)agent.send("first user message", callbacks);
+    } catch (const HttpError& error) {
+        first_turn_failed_http = std::string(error.what()).find("status 500") != std::string::npos;
+    }
+    CHECK(first_turn_failed_http);
+    CHECK_EQ(executions, 1u);
+    CHECK_EQ(outcomes.size(), std::size_t(1));
+    if (outcomes.size() == 1) {
+        CHECK_EQ(outcomes[0].name, std::string("once"));
+        CHECK(outcomes[0].ok);
+        CHECK_EQ(outcomes[0].result, std::string("synthetic tool result"));
+    }
+
+    CHECK_EQ(agent.send("next user message"), std::string("next turn complete"));
+    CHECK_EQ(executions, 1u);
+
+    const auto bodies = server.received_bodies();
+    CHECK_EQ(bodies.size(), std::size_t(3));
+    if (bodies.size() == 3) {
+        const auto first_request = nlohmann::json::parse(bodies[0]).at("messages");
+        CHECK(first_request.size() == 1);
+        CHECK_EQ(first_request.at(0).at("role").get<std::string>(), std::string("user"));
+        CHECK_EQ(first_request.at(0).at("content").get<std::string>(), std::string("first user message"));
+
+        const auto failed_followup = nlohmann::json::parse(bodies[1]).at("messages");
+        CHECK(failed_followup.size() == 3);
+        CHECK(failed_followup.at(0).at("role") == "user");
+        CHECK(failed_followup.at(1).at("role") == "assistant");
+        CHECK_EQ(failed_followup.at(1).at("tool_calls").at(0).at("id").get<std::string>(),
+                 std::string("call-once"));
+        CHECK(failed_followup.at(2).at("role") == "tool");
+        CHECK_EQ(failed_followup.at(2).at("tool_call_id").get<std::string>(), std::string("call-once"));
+        CHECK_EQ(failed_followup.at(2).at("content").get<std::string>(), std::string("synthetic tool result"));
+
+        const auto next_turn = nlohmann::json::parse(bodies[2]).at("messages");
+        CHECK(next_turn.size() == 4);
+        CHECK(next_turn.at(0).at("role") == "user");
+        CHECK_EQ(next_turn.at(0).at("content").get<std::string>(), std::string("first user message"));
+        CHECK(next_turn.at(1).at("role") == "assistant");
+        CHECK(next_turn.at(1).contains("tool_calls"));
+        CHECK(next_turn.at(2).at("role") == "tool");
+        CHECK_EQ(next_turn.at(2).at("tool_call_id").get<std::string>(), std::string("call-once"));
+        CHECK_EQ(next_turn.at(2).at("content").get<std::string>(), std::string("synthetic tool result"));
+        CHECK(next_turn.at(3).at("role") == "user");
+        CHECK_EQ(next_turn.at(3).at("content").get<std::string>(), std::string("next user message"));
+    }
+
+    std::vector<const AgentEvent*> http_started;
+    std::vector<const AgentEvent*> http_finished;
+    std::vector<const AgentEvent*> tool_started;
+    std::vector<const AgentEvent*> tool_succeeded;
+    std::vector<const AgentEvent*> request_failed;
+    std::vector<const AgentEvent*> turn_finished;
+    for (const auto& event : observer->events) {
+        switch (event.type()) {
+        case EventType::HttpRequestStarted: http_started.push_back(&event); break;
+        case EventType::HttpRequestFinished: http_finished.push_back(&event); break;
+        case EventType::ToolStarted: tool_started.push_back(&event); break;
+        case EventType::ToolSucceeded: tool_succeeded.push_back(&event); break;
+        case EventType::RequestFailed: request_failed.push_back(&event); break;
+        case EventType::TurnFinished: turn_finished.push_back(&event); break;
+        default: break;
+        }
+    }
+    CHECK_EQ(http_started.size(), std::size_t(3));
+    CHECK_EQ(http_finished.size(), std::size_t(3));
+    CHECK_EQ(tool_started.size(), std::size_t(1));
+    CHECK_EQ(tool_succeeded.size(), std::size_t(1));
+    CHECK_EQ(request_failed.size(), std::size_t(1));
+    CHECK_EQ(turn_finished.size(), std::size_t(2));
+    if (http_started.size() == 3 && http_finished.size() == 3) {
+        CHECK(http_started[0]->metadata.request_id == http_finished[0]->metadata.request_id);
+        CHECK(http_started[1]->metadata.request_id == http_finished[1]->metadata.request_id);
+        CHECK(http_started[2]->metadata.request_id == http_finished[2]->metadata.request_id);
+        CHECK(std::get<agent::ui::HttpRequestFinished>(http_finished[0]->payload).outcome
+              == agent::ui::HttpRequestOutcome::completed);
+        CHECK(std::get<agent::ui::HttpRequestFinished>(http_finished[1]->payload).outcome
+              == agent::ui::HttpRequestOutcome::failed);
+        CHECK(std::get<agent::ui::HttpRequestFinished>(http_finished[2]->payload).outcome
+              == agent::ui::HttpRequestOutcome::completed);
+    }
+    if (tool_started.size() == 1 && tool_succeeded.size() == 1 && http_started.size() >= 1) {
+        CHECK(tool_started[0]->metadata.tool_call_id == std::optional<agent::ui::ToolCallId>{
+                  agent::ui::ToolCallId{"call-once"}});
+        CHECK(tool_succeeded[0]->metadata.tool_call_id == tool_started[0]->metadata.tool_call_id);
+        CHECK(tool_started[0]->metadata.request_id == http_started[0]->metadata.request_id);
+        CHECK(tool_succeeded[0]->metadata.request_id == http_started[0]->metadata.request_id);
+        CHECK_EQ(std::get<agent::ui::ToolSucceeded>(tool_succeeded[0]->payload).name, std::string("once"));
+    }
+    if (request_failed.size() == 1 && http_started.size() >= 2 && turn_finished.size() == 2) {
+        CHECK(request_failed[0]->metadata.request_id == http_started[1]->metadata.request_id);
+        CHECK(request_failed[0]->metadata.turn_id == std::optional<agent::ui::TurnId>{agent::ui::TurnId{1}});
+        CHECK(std::get<agent::ui::RequestFailed>(request_failed[0]->payload).category
+              == agent::ui::RequestFailureCategory::http);
+        const auto& failed = std::get<agent::ui::TurnFinished>(turn_finished[0]->payload);
+        CHECK(failed.outcome == agent::ui::TurnOutcome::failed);
+        CHECK_EQ(failed.http_requests, std::uint32_t(2));
+        CHECK_EQ(failed.tools_succeeded, std::uint32_t(1));
+        CHECK_EQ(failed.tools_failed, std::uint32_t(0));
+        CHECK(turn_finished[0]->metadata.turn_id == std::optional<agent::ui::TurnId>{agent::ui::TurnId{1}});
+        CHECK(std::get<agent::ui::TurnFinished>(turn_finished[1]->payload).outcome
+              == agent::ui::TurnOutcome::completed);
+        CHECK(turn_finished[1]->metadata.turn_id == std::optional<agent::ui::TurnId>{agent::ui::TurnId{2}});
+    }
+    std::vector<AgentEvent> first_turn_events;
+    std::vector<AgentEvent> second_turn_events;
+    for (const auto& event : observer->events) {
+        if (event.metadata.turn_id == std::optional<agent::ui::TurnId>{agent::ui::TurnId{1}}) {
+            first_turn_events.push_back(event);
+        } else if (event.metadata.turn_id == std::optional<agent::ui::TurnId>{agent::ui::TurnId{2}}) {
+            second_turn_events.push_back(event);
+        }
+    }
+    check_single_terminal_sequence(first_turn_events);
+    check_single_terminal_sequence(second_turn_events);
+}
+
 TEST(agent, failed_tool_is_reported_and_turn_can_complete)
 {
     MockHttpServer server;

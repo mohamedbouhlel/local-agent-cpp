@@ -50,7 +50,7 @@ La CLI classique est `--ui=classic`; elle est aussi le mode par défaut. L'agent
 
 ## Installer le paquet local Debian
 
-Une recette pour construire un paquet local Debian 13 amd64 existe dans [`docs/INSTALL_DEBIAN13.md`](../../INSTALL_DEBIAN13.md). Le paquet installé fournit `/usr/bin/lofiterm`; utilisez `sudo apt install ./lofiterm_1.0.0-1_amd64.deb`. Ce n'est ni un dépôt APT ni un paquet publiquement distribuable : la licence de redistribution n'est pas déclarée dans le dépôt.
+Une recette pour construire un paquet local Debian 13 amd64 existe dans [`docs/INSTALL_DEBIAN13.md`](../../INSTALL_DEBIAN13.md). Le paquet installé fournit `/usr/bin/lofiterm`; utilisez `sudo apt install ./lofiterm_1.0.0-1_amd64.deb`. Ce n'est pas un dépôt APT ni une publication officielle. Le code original est sous [licence 0BSD](../../../LICENSE) ; une distribution binaire doit aussi respecter les licences tierces.
 
 Le paquet sépare l'application et les données utilisateur : configuration sous `${XDG_CONFIG_HOME:-~/.config}/lofiterm/config`, workspace sous `${XDG_DATA_HOME:-~/.local/share}/lofiterm/workspace`. `LOFITERM_CONFIG_FILE` et `LOFITERM_DATA_DIR` acceptent des chemins absolus pour déplacer ces emplacements. Le lanceur change de répertoire vers le dossier de données avant de lancer l'agent, donc le cwd courant ne détermine pas le workspace du paquet.
 

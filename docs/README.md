@@ -61,6 +61,7 @@ Artefacts **datés**, liés à un jalon précis.
 
 | Rapport | Objet |
 | --- | --- |
+| [`2026-11-13-lofiterm-github-metadata-0bsd.md`](reports/2026-11-13-lofiterm-github-metadata-0bsd.md) | Choix de la licence 0BSD, alignement des notices et configuration GitHub recommandée |
 | [`2026-11-13-lofiterm-documentation-trilingual-redesign.md`](reports/2026-11-13-lofiterm-documentation-trilingual-redesign.md) | Refonte de la documentation utilisateur LOFITERM en français, anglais et espagnol; sources, captures PTY et limites de vérification |
 | [`reports/streaming-audit.md`](reports/streaming-audit.md) | audit en lecture seule de l'état réel du streaming avant implémentation (framing SSE, reconstruction des deltas) |
 | [`reports/PHASE_1_1_REPORT.md`](reports/PHASE_1_1_REPORT.md) | mise en place du harness de tests reproductible (micro-harnais maison, 64 cas / 239 assertions, 5 groupes) |

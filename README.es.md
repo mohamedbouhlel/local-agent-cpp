@@ -57,7 +57,7 @@ Desde el directorio elegido arriba, inicia la interfaz clásica con `"$repo_dir/
 
 ## Instalación en Debian
 
-El repositorio incluye una receta para generar un paquete local Debian 13 amd64. Consulta [instalación en Debian 13](docs/INSTALL_DEBIAN13.md) y la [guía de inicio](docs/user/es/01-primeros-pasos.md). No hay un repositorio APT público. El código fuente no declara una licencia de redistribución; no distribuyas el paquete hasta que se aclare.
+El repositorio incluye una receta para generar un paquete local Debian 13 amd64. Consulta [instalación en Debian 13](docs/INSTALL_DEBIAN13.md) y la [guía de inicio](docs/user/es/01-primeros-pasos.md). No hay un repositorio APT público. El código original del proyecto se distribuye bajo la [licencia 0BSD](LICENSE). Las dependencias de terceros conservan sus licencias; el paquete Debian es una receta local, no una publicación oficial.
 
 ## Guías
 
@@ -93,6 +93,10 @@ flowchart LR
 ```
 
 Consulta la [guía detallada de arquitectura](docs/user/es/07-arquitectura.md). Los diagramas describen el código disponible, no todas las propuestas de las especificaciones históricas.
+
+## Licencia
+
+El código y la documentación originales de LOFITERM se distribuyen bajo la [licencia BSD Zero-Clause (0BSD)](LICENSE). Se permiten usos comerciales y redistribución sin atribución obligatoria. Los componentes de terceros conservan sus licencias.
 
 ## Contribuir
 

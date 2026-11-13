@@ -20,7 +20,7 @@ La aprobación no evita una decisión del usuario mal informada. Inspecciona des
 - Las métricas conservan contadores e identificadores acotados; no guardan texto de conversaciones, argumentos o resultados de herramientas como historial de métricas.
 - El contenido enviado al LLM queda sujeto a las políticas del servidor y de la red. Un modelo local no implica automáticamente que el servidor no registre nada.
 - El historial de conversación permanece en la memoria del proceso; los archivos del workspace de una compilación fuente permanecen en disco en la ruta elegida. LOFITERM no ofrece memoria persistente entre sesiones.
-- El repositorio no declara licencia de redistribución. El paquete Debian es para instalación/evaluación local, no una autorización de distribución pública.
+- El código y la documentación originales utilizan la [licencia 0BSD](../../../LICENSE). Las dependencias de terceros conservan sus licencias; el paquete Debian es una receta local, no una publicación oficialmente cualificada.
 
 ## Límites operativos establecidos
 

@@ -3,8 +3,22 @@ Upstream-Name: LOFITERM
 Source: https://github.com/mohamedbouhlel/local-agent-cpp
 
 Files: *
-Copyright: Not declared in the source tree inspected for this local build.
-License: UNKNOWN
- This local package is for installation and evaluation on the maintainer's
- system only. No license to redistribute the program is asserted by this
- metadata. Public distribution is blocked pending an explicit license.
+Copyright: 2026 Mohamed Bouhlel
+License: 0BSD
+ Permission to use, copy, modify, and/or distribute this software for any
+ purpose with or without fee is hereby granted.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+Comment:
+ The 0BSD grant applies to the project's original material. External build
+ and runtime dependencies (including nlohmann/json, fetched at build time)
+ retain their own licenses. Before distributing Debian binaries, review
+ their license obligations and include any required third-party notices.
+ The local package recipe is not a public release qualification.

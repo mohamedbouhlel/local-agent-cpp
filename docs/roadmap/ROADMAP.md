@@ -8,11 +8,32 @@
 > Les propositions de développement ci-dessous ne sont pas des décisions
 > d'implémentation. Les photographies plus anciennes de
 > ([`PROJECT_CONTEXT.md`](../context/PROJECT_CONTEXT.md), [`PROJECT_HISTORY.md`](../history/PROJECT_HISTORY.md))
-> restent datées et ne remplacent pas l'état courant ajouté en tête.
+> restent datées. L'actualisation la plus récente de l'état Git courant est
+> ajoutée en tête; les sections historiques ci-dessous ne sont pas réécrites.
 
-## État courant et convergence produit — 2026-11-12
+## Actualisation vérifiée de main — 2026-11-14
 
-> **Photographie de code et de Git :** `main` / `origin/main` local au SHA
+> **Référence Git :** `origin/main` au SHA
+> `62c69b766093ca586b58a23d8379a325940d3fc5`, merge de la PR #60. Les merges
+> #58 et #60 et leurs fichiers ont été contrôlés dans l'historique Git et sur
+> GitHub. Cette section décrit l'état du dépôt, pas une qualification nouvelle
+> du binaire au SHA courant.
+
+| Sujet | État vérifié au SHA | Preuve et portée |
+|---|---|---|
+| Sources de packaging Debian | Présentes dans `main` depuis la PR #58 : recette `packaging/build-deb.sh`, métadonnées, lanceur, exemple de configuration, script de qualification installée et `docs/INSTALL_DEBIAN13.md`. | **GIT VÉRIFIÉ** : merge `39646ffade1c71ece9995fde7770dcf428e45d3a`; 11 fichiers fusionnés. Cela confirme la présence du mécanisme de construction, pas une publication du paquet. |
+| Qualification locale du paquet | Un rapport consigne la construction, l'installation, les parcours et la désinstallation d'un paquet Debian 13 amd64 au SHA source `60e2e554479841e2822b8b3d6e601222ad2ab7c3`. | **TEST RAPPORTÉ** : [`2026-11-13-lofiterm-debian13-package-validation.md`](../reports/2026-11-13-lofiterm-debian13-package-validation.md). Ce résultat reste lié à ce SHA et à l'environnement Debian 13 amd64 décrit; il n'a pas été rejoué sur `62c69b7`. |
+| Licence du code original | Le dépôt porte la licence 0BSD depuis la PR #60; `LICENSE` et `packaging/copyright` distinguent le matériel original des dépendances tierces. | **GIT VÉRIFIÉ** : merge `62c69b766093ca586b58a23d8379a325940d3fc5`; 14 fichiers fusionnés, dont `LICENSE`. Les obligations de licence et notices des dépendances restent applicables aux distributions binaires. |
+| Publication officielle | Aucune release GitHub n'apparaît dans l'interrogation effectuée le 2026-11-14 (`gh release list --repo mohamedbouhlel/local-agent-cpp --limit 20 --json tagName,name,isLatest` → `[]`). Le dépôt décrit le `.deb` comme paquet local et ne documente aucun dépôt APT public. | **GIT/GITHUB VÉRIFIÉ** pour la liste des releases; **CODE/DOCUMENTATION VÉRIFIÉ** pour la recette et l'absence de dépôt APT décrit. La présence des sources et une qualification locale ne signifient ni publication officielle, ni disponibilité d'un paquet sur un dépôt. |
+
+Les observations de l'ancienne section du 12 novembre sont conservées à leur
+SHA et à leur date ci-dessous. Les mentions de licence ou de packaging qui y
+étaient exactes à cette époque restent des faits historiques, pas l'état
+courant après les PR #58 et #60.
+
+## Photographie historique de convergence produit — 2026-11-12
+
+> **Photographie de code et de Git à la date de rédaction :** `main` / `origin/main` local au SHA
 > `fe681d3fb2f71f4a3aaa2b0d996df16f5896b923`, merge PR #49. La résolution
 > DNS de GitHub a échoué pendant cette intervention; la référence distante
 > fraîche n'a donc pas pu être interrogée. Le SHA local `origin/main` concorde
@@ -22,8 +43,8 @@
 >
 > Les sections A–H et la mise à jour UX ci-dessous sont des photographies et
 > propositions **datées à leurs SHA historiques**, non des statuts actuels.
-> Cette section est la référence courante de la roadmap au SHA ci-dessus;
-> elle ne réécrit ni les archives ni le gel technique. Les libellés de preuve
+> Cette section a servi de référence courante au SHA indiqué à la date de sa
+> rédaction; elle ne réécrit ni les archives ni le gel technique. Les libellés de preuve
 > sont `CODE VÉRIFIÉ`, `GIT VÉRIFIÉ`, `TEST RAPPORTÉ`, `RECETTE MAINTENEUR`,
 > `RISQUE NON PROUVÉ`, `PROPOSITION` ou `DÉCISION OUVERTE`.
 

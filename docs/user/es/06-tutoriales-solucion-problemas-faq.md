@@ -42,6 +42,8 @@ Pide un solo archivo con una ruta relativa y describe el contenido deseado. Cuan
 
 **¿Se guardan las conversaciones después de salir?** El historial vive en la memoria del proceso y no se restaura al siguiente inicio. Los archivos creados en el workspace permanecen en disco.
 
-**¿Se puede publicar el paquete?** No según los metadatos actuales; falta aclarar la licencia de redistribución.
+**¿Se puede redistribuir el paquete?**
+
+El código original de LOFITERM se distribuye bajo la licencia 0BSD, que permite su redistribución. El repositorio contiene una receta de paquete Debian 13 amd64 calificada localmente, pero actualmente no publica ninguna release oficial ni un repositorio APT público. Toda redistribución binaria debe cumplir las licencias y los avisos de las dependencias de terceros y someterse a una calificación adecuada.
 
 Abre el [índice documental](../../README.md) para acceder a los otros idiomas y guías.

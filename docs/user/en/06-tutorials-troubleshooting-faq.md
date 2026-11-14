@@ -42,6 +42,8 @@ Ask for one file at a relative path and describe the intended content. When appr
 
 **Are conversations saved after exit?** Conversation history is in process memory and is not restored at the next launch. Files created in the workspace remain on disk.
 
-**Can the package be published?** Not based on current metadata; redistribution licensing needs clarification.
+**Can the package be redistributed?**
+
+LOFITERM's original code is distributed under the 0BSD license, which permits redistribution. The repository contains a locally qualified Debian 13 amd64 package recipe, but currently publishes neither an official release nor a public APT repository. Any binary redistribution must comply with third-party dependency licenses and notices and receive appropriate qualification.
 
 Open the [documentation index](../../README.md) for the other languages and guides.

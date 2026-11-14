@@ -42,6 +42,8 @@ Demandez un seul fichier avec un chemin relatif et décrivez le contenu souhait�
 
 **Les conversations sont-elles mémorisées après fermeture ?** L'historique conversationnel réside dans le processus et n'est pas restauré au prochain lancement. Les fichiers écrits dans le workspace restent sur disque.
 
-**Le paquet peut-il être publié ?** Pas sur la base des métadonnées actuelles : la licence de redistribution doit être clarifiée.
+**Le paquet peut-il être redistribué ?**
+
+Le code original de LOFITERM est distribué sous licence 0BSD, qui autorise sa redistribution. Le dépôt contient une recette de paquet Debian 13 amd64 qualifiée localement, mais ne publie actuellement ni release officielle ni dépôt APT public. Toute redistribution binaire doit respecter les licences et notices des dépendances tierces et faire l'objet d'une qualification adaptée.
 
 Pour les langues et les autres guides, ouvrir [l'index documentaire](../../README.md).
